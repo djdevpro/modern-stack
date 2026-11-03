@@ -5,7 +5,7 @@ terraform {
     # Le fournisseur hcloud ne gère pas les buckets Object Storage : on passe par l'API S3.
     minio = {
       source  = "aminueza/minio"
-      version = "3.45.0"
+      version = "3.45.1"
     }
     random = {
       source  = "hashicorp/random"

@@ -12,7 +12,7 @@ Le webmail, Voxel (anciennement Universal Email, dépôt public https://github.c
 
 ## Keycloak (identité)
 
-Connexion unique de tes applis (OpenID Connect, SAML) sur `https://iam.<DOMAINE>`, public, console d'admin comprise (`/admin`, identifiant `admin`, mot de passe `KEYCLOAK_ADMIN_PASSWORD`). Keycloak 26 (`KEYCLOAK_TAG`) et sa base Postgres 18 (`keycloak-db`, volume `keycloak-db`), seule sur le réseau `iam`, sans sortie.
+Connexion unique de tes applis (OpenID Connect, SAML) sur `https://iam.<DOMAINE>`, public, console d'admin comprise (`/admin`, identifiant `admin`, mot de passe `KEYCLOAK_ADMIN_PASSWORD`). Keycloak 26 et sa base Postgres 18 (`keycloak-db`, volume `keycloak-db`), seule sur le réseau `iam`, sans sortie.
 
 - Brancher une appli : crée un realm pour tes applis (pas `master`, réservé aux administrateurs), puis un client OpenID Connect avec l'adresse de retour de l'appli. Découverte : `https://iam.<DOMAINE>/realms/<realm>/.well-known/openid-configuration`.
 - Admin : au tout premier démarrage (base vide), Keycloak crée `temp-admin` avec `KEYCLOAK_ADMIN_PASSWORD`. Ici, il a été remplacé le 2026-11-03 par l'admin permanent `admin` (même mot de passe, rôle `admin`) et l'anti-force brute du realm `master` est activé. Après une réinstallation : *Users > Add user* `admin`, *Role mapping* `admin`, puis supprimer `temp-admin`.
@@ -33,7 +33,7 @@ Certificats : `letsencrypt` (défi HTTP) pour le public, `letsencrypt-dns` (déf
 
 ## À savoir
 
-- Versions : `.env.example` fixe des versions connues (`STALWART_TAG`, `KEYCLOAK_TAG`…).
+- Versions : images épinglées dans `compose.yaml` (étiquette et empreinte), tenues à jour par Dependabot ; les correctifs sont fusionnés et déployés seuls par l'agent du serveur (`../deploiement/README.md`). Pour changer une version à la main : étiquette ET empreinte (`docker buildx imagetools inspect <image:étiquette>`).
 - Stalwart : `stalwart/config.json` (stockage seul) évite l'assistant d'installation de la v1 ; l'admin est `admin` / `STALWART_ADMIN_PASSWORD`.
 - Administration de Stalwart v1 : plus d'API REST, tout passe par JMAP (`x:Domain`, `x:Account`, `x:Certificate`…). Sur le serveur, `sw <méthode> '<JSON>'` lance `stalwart/jmap-admin.py` dans un conteneur du réseau `mail` (image `tools/`, construite au premier appel), ex. `sw x:Account/get '{"ids": null}'`. Ou l'interface web : `https://mail.<DOMAINE>/admin`, et pas `stalwart.<DOMAINE>` : Stalwart ne sert les métadonnées de connexion de son interface (`/account/oauth-client.json`) que sous son nom officiel `mail.<DOMAINE>`, la connexion échoue ailleurs (« Failed to fetch the client metadata document »).
 - Stalwart derrière Traefik : `x:Http` lit l'adresse du visiteur dans `X-Forwarded-For`. `x:AllowedIp` (adresses jamais bannies) contient `dokploy-network` (10.0.1.0/24, Traefik et les applis Dokploy), le réseau `mail` (outils comme `sw`) et la passerelle 172.22.0.1 (`edge`), par laquelle arrivent les conteneurs du serveur qui joignent le mail par l'IP publique (passerelle IMAP de Voxel, Keycloak en SMTP). 172.30.0.1 (`traefik-public`) a été retirée avec la v3 du webmail, qui ne passe plus par Traefik pour joindre Stalwart. Sans ces entrées, une vague de robots ou d'erreurs de mot de passe fait bannir Traefik (tout le web de Stalwart tombe en « Bad Gateway ») ou ces conteneurs.

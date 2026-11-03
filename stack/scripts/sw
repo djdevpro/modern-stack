@@ -1,0 +1,11 @@
+#!/bin/sh
+# Administration de Stalwart v1 en JMAP depuis l'hôte : sw <méthode> ['<arguments JSON>' | -]
+#   ex : sw x:Account/get '{"ids": null}'
+# Lance stalwart/jmap-admin.py dans un conteneur du réseau « mail » avec le mot de passe admin du .env.
+# L'image (tools/Dockerfile) est construite au premier appel si elle manque.
+sudo docker image inspect tout-en-un/tools:local >/dev/null 2>&1 ||
+  sudo docker build -q -t tout-en-un/tools:local /opt/stack/tools >/dev/null
+exec sudo docker run --rm -i --network tout-en-un_mail \
+  -e STALWART_ADMIN_PASSWORD="$(sudo sed -n 's/^STALWART_ADMIN_PASSWORD=//p' /opt/stack/.env)" \
+  -v /opt/stack/stalwart/jmap-admin.py:/jmap-admin.py:ro \
+  tout-en-un/tools:local python3 /jmap-admin.py "$@"

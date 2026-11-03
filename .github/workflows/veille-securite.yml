@@ -1,0 +1,107 @@
+# Veille CVE : chaque nuit, et à la demande (Actions > Veille sécurité > Run workflow, aussi depuis l'appli
+# mobile), Trivy analyse toutes les images épinglées de la stack.
+#   - alertes dans l'onglet Security ;
+#   - issue « Failles de sécurité à corriger », commentée quand une nouvelle faille apparaît, fermée quand
+#     il n'y a plus rien à corriger ;
+#   - si un éditeur a reconstruit une image avec les correctifs (même version, nouvelle empreinte) : PR
+#     fusionnée seule quand la CI passe, donc déployée par l'agent du serveur dans la foulée.
+# Les nouvelles versions viennent de Dependabot (.github/dependabot.yml).
+name: Veille sécurité
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veille-securite
+  cancel-in-progress: false
+
+jobs:
+  veille:
+    name: CVE des images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write         # branche de la PR de reconstruction
+      pull-requests: write    # PR et fusion automatique
+      issues: write           # issue des failles
+      security-events: write  # onglet Security
+      actions: write          # lance la CI sur la branche (une PR ouverte avec GITHUB_TOKEN ne la déclenche pas)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Trivy
+        run: .github/scripts/outil --installe trivy "$RUNNER_TEMP/outils"
+      - name: Jour (clé du cache)
+        id: jour
+        run: echo "jour=$(date -u +%F)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ steps.jour.outputs.jour }}
+          restore-keys: trivy-
+      - name: PR Dependabot ouvertes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr list --state open --label dependances --json number,title,url >"$RUNNER_TEMP/prs.json"
+      - name: Analyse des images
+        run: >-
+          TRIVY="$RUNNER_TEMP/outils/trivy" python3 .github/scripts/veille_images.py veille
+          --prs "$RUNNER_TEMP/prs.json" --sarif "$RUNNER_TEMP/trivy-images.sarif"
+          --rapport "$RUNNER_TEMP/rapport.md" --maj "$RUNNER_TEMP/maj.tsv"
+      - name: Onglet Security
+        uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        with:
+          sarif_file: ${{ runner.temp }}/trivy-images.sarif
+          category: trivy-images
+      - name: Issue des failles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIEN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          titre="Failles de sécurité à corriger"
+          rapport="$RUNNER_TEMP/rapport.md"
+          num=$(gh issue list --state open --label securite --json number,title \
+            --jq "map(select(.title == \"$titre\"))[0].number // empty")
+          if [ -s "$rapport" ]; then
+            printf '\n[Dernière analyse](%s)\n' "$LIEN" >>"$rapport"
+            if [ -z "$num" ]; then
+              gh issue create --title "$titre" --label securite --body-file "$rapport"
+            else
+              avant=$(gh issue view "$num" --json body --jq .body)
+              gh issue edit "$num" --body-file "$rapport" >/dev/null
+              nouvelles=$(comm -13 <(grep -oE '(CVE|GHSA)-[0-9A-Za-z-]+' <<<"$avant" | sort -u) \
+                <(grep -oE '(CVE|GHSA)-[0-9A-Za-z-]+' "$rapport" | sort -u) | paste -sd ' ' -)
+              if [ -n "$nouvelles" ]; then gh issue comment "$num" --body "Nouvelles failles : $nouvelles"; fi
+            fi
+          elif [ -n "$num" ]; then
+            gh issue close "$num" --comment "Plus aucune faille critique ou haute corrigeable dans les images de la stack."
+          fi
+      - name: PR des images reconstruites
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          maj="$RUNNER_TEMP/maj.tsv"
+          [ -s "$maj" ] || { echo "Aucune image reconstruite à reprendre."; exit 0; }
+          if [ "$(gh pr list --state open --label securite-auto --json number --jq length)" != 0 ]; then
+            echo "Une PR de reconstruction est déjà ouverte."; exit 0
+          fi
+          branche="securite/reconstruction-$(date -u +%Y%m%d-%H%M)"
+          python3 .github/scripts/veille_images.py appliquer "$maj"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branche"
+          git commit -qam "Sécurité : images reconstruites par leurs éditeurs"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branche"
+          gh pr create --base main --head "$branche" --label securite-auto \
+            --title "Sécurité : images reconstruites ($(date -u +%F))" --body-file "$RUNNER_TEMP/pr.md"
+          gh workflow run ci.yml --ref "$branche"
+          gh pr merge "$branche" --auto --squash

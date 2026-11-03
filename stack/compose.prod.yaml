@@ -1,0 +1,66 @@
+# Prod sur le serveur, sans l'interface Dokploy : le Traefik de Dokploy (réseau dokploy-network) sert de frontal HTTPS.
+#   cd /opt/stack && sudo ./scripts/deploie-prod.sh
+#
+# Public            : mail.<DOMAINE> (interface Stalwart, admin sur /admin), autoconfig/autodiscover,
+#                     iam.<DOMAINE> (Keycloak, console d'admin sur /admin), certificat « letsencrypt » (défi HTTP).
+#                     webmail.<DOMAINE> : Voxel (ex-Universal Email), routé par son propre compose (/opt/universal-email-v3).
+# Réservé à NetBird : grafana.<DOMAINE> et stalwart.<DOMAINE> (la connexion admin y échoue : utilise mail.<DOMAINE>/admin) ;
+#                     dokploy.<DOMAINE> est dans traefik/prod-dynamic.yml.
+#                     Certificat « letsencrypt-dns » (défi DNS Cloudflare), middleware netbird-seul@file.
+
+services:
+
+  stalwart:
+    networks: [edge, mail, monitoring, dokploy-network]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.stalwart.rule: Host(`stalwart.${DOMAINE:?}`)
+      traefik.http.routers.stalwart.entrypoints: websecure
+      traefik.http.routers.stalwart.tls.certresolver: letsencrypt-dns
+      traefik.http.routers.stalwart.middlewares: netbird-seul@file
+      traefik.http.routers.stalwart.service: stalwart
+      # Interface web de Stalwart en public sur mail.<DOMAINE> (compte de chaque boîte, admin) ; elle a sa propre connexion
+      traefik.http.routers.mail.rule: Host(`mail.${DOMAINE:?}`)
+      traefik.http.routers.mail.entrypoints: websecure
+      traefik.http.routers.mail.tls.certresolver: letsencrypt
+      traefik.http.routers.mail.service: stalwart
+      traefik.http.routers.mail-http.rule: Host(`mail.${DOMAINE:?}`)
+      traefik.http.routers.mail-http.entrypoints: web
+      traefik.http.routers.mail-http.middlewares: redirect-to-https@file
+      # Configuration automatique des applis mail : public, mais seulement ces chemins (pas l'admin)
+      traefik.http.routers.autoconfig.rule: (Host(`autoconfig.${DOMAINE:?}`) || Host(`autodiscover.${DOMAINE:?}`)) && (Path(`/mail/config-v1.1.xml`) || PathPrefix(`/.well-known/autoconfig/`) || PathPrefix(`/autodiscover/`) || PathPrefix(`/Autodiscover/`))
+      traefik.http.routers.autoconfig.entrypoints: websecure
+      traefik.http.routers.autoconfig.tls.certresolver: letsencrypt
+      traefik.http.routers.autoconfig.service: stalwart
+      traefik.http.services.stalwart.loadbalancer.server.port: "8080"
+
+  grafana:
+    networks: [edge, monitoring, dokploy-network]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.grafana.rule: Host(`grafana.${DOMAINE:?}`)
+      traefik.http.routers.grafana.entrypoints: websecure
+      traefik.http.routers.grafana.tls.certresolver: letsencrypt-dns
+      traefik.http.routers.grafana.middlewares: netbird-seul@file
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+
+  keycloak:
+    networks: [iam, dokploy-network]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      # Public, console d'admin comprise (/admin) : elle a sa propre connexion, avec l'anti-force brute du realm master.
+      # /health et /metrics restent sur le port de gestion 9000, jamais publié.
+      traefik.http.routers.iam.rule: Host(`iam.${DOMAINE:?}`)
+      traefik.http.routers.iam.entrypoints: websecure
+      traefik.http.routers.iam.tls.certresolver: letsencrypt
+      traefik.http.routers.iam-http.rule: Host(`iam.${DOMAINE:?}`)
+      traefik.http.routers.iam-http.entrypoints: web
+      traefik.http.routers.iam-http.middlewares: redirect-to-https@file
+      traefik.http.services.keycloak.loadbalancer.server.port: "8080"
+
+networks:
+  dokploy-network:
+    external: true

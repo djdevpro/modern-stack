@@ -1,0 +1,39 @@
+#!/bin/sh
+# Lance un outil de la CI dans son image Docker, épinglée par empreinte dans .github/outils/Dockerfile
+# (tenue à jour par Dependabot), le dépôt monté dans /travail. À lancer depuis la racine du dépôt :
+#   .github/scripts/outil <outil> [arguments...]
+#   .github/scripts/outil --image <outil>                image de l'outil
+#   .github/scripts/outil --installe trivy <dossier>     copie le binaire de Trivy dans <dossier>
+set -eu
+racine=$(git rev-parse --show-toplevel)
+
+image() {
+	img=$(awk -v nom="$1" 'toupper($1) == "FROM" && tolower($NF) == nom { print $2 }' "$racine/.github/outils/Dockerfile")
+	[ -n "$img" ] || { echo "outil inconnu : $1" >&2; exit 1; }
+	echo "$img"
+}
+
+case ${1:-} in
+--image)
+	image "$2"
+	;;
+--installe)
+	[ "$2" = trivy ] || { echo "seul trivy s'installe" >&2; exit 1; }
+	mkdir -p "$3"
+	id=$(docker create "$(image trivy)")
+	docker cp "$id:/usr/local/bin/trivy" "$3/trivy" >/dev/null
+	docker rm "$id" >/dev/null
+	;;
+*)
+	img=$(image "$1")
+	shift
+	cache=${OUTIL_CACHE:-$HOME/.cache/outils}
+	mkdir -p "$cache/maison"
+	exec docker run --rm -u "$(id -u):$(id -g)" \
+		-v "$racine:/travail" -w /travail -v "$cache:/cache" \
+		-e HOME=/cache/maison -e XDG_CACHE_HOME=/cache -e TRIVY_CACHE_DIR=/cache/trivy -e CHECKPOINT_DISABLE=1 \
+		-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/travail \
+		${GH_TOKEN:+-e GH_TOKEN} \
+		"$img" "$@"
+	;;
+esac

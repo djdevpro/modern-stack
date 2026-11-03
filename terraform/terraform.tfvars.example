@@ -1,0 +1,17 @@
+# Copie ce fichier en terraform.tfvars (non versionné) et adapte.
+# Les secrets (jeton Hetzner, clé NetBird) vont dans .env : voir env.example.
+
+location       = "nbg1" # ou hel1, fsn1
+ssh_public_key = "ssh-ed25519 AAAA... albert@laptop"
+admin_user     = "albert"
+
+# Ton IP publique (curl -4 ifconfig.me) pour l'accès SSH de secours et le panneau Dokploy.
+# Laisse vide pour tout fermer et passer uniquement par NetBird.
+admin_ips = ["203.0.113.10/32"]
+
+# Un seul serveur pour tout (applis, mail, supervision, identité).
+server_name = "serveur"
+server_type = "cpx22" # 4 Go : KEYCLOAK_MEM_LIMIT=1g dans la stack. cpx32 (8 Go) si ça coince.
+
+# Obligatoire : hostname et reverse DNS du serveur, utilisé par le mail.
+mail_fqdn = "mail.mondomaine.fr"

@@ -1,0 +1,112 @@
+#cloud-config
+# Serveur unique : applis (Dokploy) ; mail, supervision et identité (stack/compose.yaml), tous dans Docker.
+# Lu seulement à la création du serveur (ignore_changes dans main.tf).
+hostname: ${name}
+fqdn: ${fqdn}
+preserve_hostname: false
+
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - git
+  - jq
+  - fail2ban
+  - unattended-upgrades
+  - nodejs
+  - npm
+
+disable_root: true
+ssh_pwauth: false
+
+users:
+  - name: ${admin_user}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+      AllowUsers ${admin_user}
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /etc/fail2ban/jail.d/sshd.local
+    permissions: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      bantime = 1h
+
+  # DNS Cloudflare en ligne de commande (stack/scripts/cf-dns)
+  - path: /usr/local/bin/cf-dns
+    permissions: "0755"
+    content: |
+      ${indent(6, cf_dns)}
+
+  # DNS d'une appli Dokploy, publique ou réservée à NetBird (stack/scripts/appli)
+  - path: /usr/local/bin/appli
+    permissions: "0755"
+    content: |
+      ${indent(6, appli)}
+
+  # Administration de Stalwart en JMAP, une fois la stack déployée (stack/scripts/sw)
+  - path: /usr/local/bin/sw
+    permissions: "0755"
+    content: |
+      ${indent(6, sw)}
+
+  # Modèle du fichier de jeton, copié dans ~/.config/cloudflare/env de l'admin (runcmd)
+  - path: /usr/local/share/cloudflare.env
+    permissions: "0644"
+    content: |
+      # Jeton Cloudflare de ${admin_user} (wrangler, cf-dns). Ne le partage pas.
+      export CLOUDFLARE_API_TOKEN=
+      export CLOUDFLARE_ACCOUNT_ID=
+      export CF_ZONE=${cf_zone}
+      export WRANGLER_SEND_METRICS=false
+
+runcmd:
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+  # Swap de 4 Go (évite les OOM pendant les builds)
+  - "[ -f /swapfile ] || (fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab)"
+  # CLI Cloudflare : wrangler (Workers, Pages, R2) ; jeton à remplir dans ~/.config/cloudflare/env
+  - npm install -g --no-fund --no-audit wrangler
+  - install -d -m 700 -o ${admin_user} -g ${admin_user} /home/${admin_user}/.config /home/${admin_user}/.config/cloudflare
+  - install -m 600 -o ${admin_user} -g ${admin_user} /usr/local/share/cloudflare.env /home/${admin_user}/.config/cloudflare/env
+  - "printf '\\n# Cloudflare (wrangler, cf-dns)\\n[ -f ~/.config/cloudflare/env ] && . ~/.config/cloudflare/env\\n' >> /home/${admin_user}/.bashrc"
+  # Claude Code pour l'admin (installateur officiel), connecté à l'abonnement si un jeton `claude setup-token` est fourni
+  - su - ${admin_user} -c 'curl -fsSL https://claude.ai/install.sh | bash'
+  - "printf '\\n# Claude Code : ~/.local/bin dans le PATH et jeton d abonnement\\ncase \":$PATH:\" in *\":$HOME/.local/bin:\"*) ;; *) PATH=\"$HOME/.local/bin:$PATH\" ;; esac\\n[ -r ~/.config/claude/oauth-token ] && export CLAUDE_CODE_OAUTH_TOKEN=\"$(cat ~/.config/claude/oauth-token)\"\\n' >> /home/${admin_user}/.bashrc"
+%{ if claude_code_oauth_token != "" ~}
+  - install -d -m 700 -o ${admin_user} -g ${admin_user} /home/${admin_user}/.config/claude
+  - "umask 077 && printf '%s' '${claude_code_oauth_token}' > /home/${admin_user}/.config/claude/oauth-token && chown ${admin_user}: /home/${admin_user}/.config/claude/oauth-token"
+%{ endif ~}
+  # NetBird (NetBird Cloud)
+  - curl -fsSL https://pkgs.netbird.io/install.sh | sh
+%{ if netbird_setup_key != "" ~}
+  - netbird up --setup-key '${netbird_setup_key}' --hostname '${name}'%{ if netbird_ssh } --allow-server-ssh%{ endif }
+%{ endif ~}
+%{ if install_dokploy ~}
+  # Dokploy (installe aussi Docker) ; l'admin peut ensuite utiliser docker sans sudo
+  - curl -sSL https://dokploy.com/install.sh | sh
+  - usermod -aG docker ${admin_user}
+%{ endif ~}
+
+final_message: "Serveur ${name} prêt après $UPTIME secondes."

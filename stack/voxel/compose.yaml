@@ -1,0 +1,60 @@
+# Voxel (le webmail) en production, derrière le Traefik de Dokploy : https://webmail.djidjelli.fr
+# Le code vient du dépôt voxel (https://github.com/djdevpro/voxel), copié dans /opt/universal-email-v3 ;
+# ce fichier et config.json sont copiés dans /opt/stack/voxel. Déployer :
+#   cd /opt/stack/voxel && sudo docker compose up -d --build
+# Noms techniques de la première version (« Universal Email ») gardés : projet, volume, conteneur et routeurs,
+# pour ne perdre ni le volume ni la configuration Traefik.
+name: universal-email
+services:
+  universal-email:
+    build: /opt/universal-email-v3
+    image: universal-email:latest
+    container_name: universal-email
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      UE_TRUST_PROXY: "1"
+      # Optionnel (à définir dans .env) : domaines autorisés sur la passerelle IMAP, vide = tous.
+      UE_ALLOWED_EMAIL_DOMAINS: ${UE_ALLOWED_EMAIL_DOMAINS:-}
+    extra_hosts:
+      # l hôte mappe mail.djidjelli.fr sur 127.0.1.1 : on force l IP publique (passerelle IMAP vers Stalwart)
+      - "mail.djidjelli.fr:2.31.149.118"
+    volumes:
+      - ue-data:/data
+      # domaines des boîtes → serveur JMAP (Stalwart) et portail de compte
+      - ./config.json:/app/apps/web/dist/config.json:ro
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.universal-email.rule=Host(`webmail.djidjelli.fr`)
+      - traefik.http.routers.universal-email.entrypoints=websecure
+      - traefik.http.routers.universal-email.tls=true
+      - traefik.http.routers.universal-email.tls.certresolver=letsencrypt
+      - traefik.http.services.universal-email.loadbalancer.server.port=8080
+      # HTTP vers HTTPS, pour les deux adresses
+      - traefik.http.routers.universal-email-http.rule=Host(`webmail.djidjelli.fr`) || Host(`email.app.djidjelli.fr`)
+      - traefik.http.routers.universal-email-http.entrypoints=web
+      - traefik.http.routers.universal-email-http.middlewares=redirect-to-https@file
+      - traefik.http.routers.universal-email-http.service=noop@internal
+      # Ancienne adresse email.app.djidjelli.fr : renvoie vers webmail, chemin compris (308 hors GET)
+      - traefik.http.routers.universal-email-ancienne.rule=Host(`email.app.djidjelli.fr`)
+      - traefik.http.routers.universal-email-ancienne.entrypoints=websecure
+      - traefik.http.routers.universal-email-ancienne.tls=true
+      - traefik.http.routers.universal-email-ancienne.tls.certresolver=letsencrypt-dns
+      # Clear-Site-Data : le navigateur oublie l'ancienne appli (service worker et cache), sinon elle reste servie
+      # depuis son cache sur email.app et ses appels, redirigés vers une autre origine, échouent.
+      - traefik.http.routers.universal-email-ancienne.middlewares=universal-email-oubli,universal-email-vers-webmail
+      - traefik.http.routers.universal-email-ancienne.service=noop@internal
+      - traefik.http.middlewares.universal-email-oubli.headers.customresponseheaders.Clear-Site-Data="storage"
+      - traefik.http.middlewares.universal-email-vers-webmail.redirectregex.regex=^https://[^/]+/(.*)
+      - traefik.http.middlewares.universal-email-vers-webmail.redirectregex.replacement=https://webmail.djidjelli.fr/$${1}
+      - traefik.http.middlewares.universal-email-vers-webmail.redirectregex.permanent=true
+
+volumes:
+  ue-data:
+
+networks:
+  dokploy-network:
+    external: true

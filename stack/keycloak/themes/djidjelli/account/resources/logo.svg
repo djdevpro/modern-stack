@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 230 44" width="230" height="44" role="img" aria-label="djidjelli.fr">
+  <style>
+    text { font: 600 30px "Red Hat Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif; fill: #4d4d4d; }
+    @media (prefers-color-scheme: dark) { text { fill: #f0f0f0; } }
+  </style>
+  <text x="2" y="32" textLength="224" lengthAdjust="spacingAndGlyphs">djidjelli.fr</text>
+</svg>

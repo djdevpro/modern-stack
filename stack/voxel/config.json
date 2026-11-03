@@ -1,0 +1,12 @@
+{
+  "jmap": {
+    "djidjelli.fr": "https://mail.djidjelli.fr/jmap/session",
+    "apportly.app": "https://mail.djidjelli.fr/jmap/session",
+    "formadiagimmo.fr": "https://mail.djidjelli.fr/jmap/session"
+  },
+  "accountPortal": {
+    "djidjelli.fr": "https://mail.djidjelli.fr/account",
+    "apportly.app": "https://mail.djidjelli.fr/account",
+    "formadiagimmo.fr": "https://mail.djidjelli.fr/account"
+  }
+}

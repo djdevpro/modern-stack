@@ -1,0 +1,46 @@
+# Modèle : scripts/deploie-prod.sh remplace __DOMAINE__ (lu dans .env) et l'écrit dans
+# /etc/dokploy/traefik/dynamic/tout-en-un.yml, lu par le Traefik de Dokploy.
+http:
+  middlewares:
+    # Seuls les appareils NetBird (100.64.0.0/10) passent.
+    netbird-seul:
+      ipAllowList:
+        sourceRange: ["100.64.0.0/10"]
+
+    # Voxel (webmail.<DOMAINE>) parle JMAP à Stalwart depuis le navigateur : Stalwart n'envoie pas
+    # d'en-têtes CORS, Traefik les ajoute (et répond lui-même aux requêtes préliminaires OPTIONS).
+    # Retry-After exposé : Voxel attend le délai demandé quand Stalwart limite (429), au lieu de deviner.
+    cors-universal-email:
+      headers:
+        accessControlAllowOriginList: ["https://webmail.__DOMAINE__"]
+        accessControlAllowMethods: [GET, POST, OPTIONS]
+        accessControlAllowHeaders: [Authorization, Content-Type, Accept, Cache-Control, Last-Event-ID]
+        accessControlExposeHeaders: [Retry-After]
+        accessControlMaxAge: 600
+        addVaryHeader: true
+
+  routers:
+    # Interface de Dokploy (déploiement des applis), réservée à NetBird.
+    dokploy:
+      rule: Host(`dokploy.__DOMAINE__`)
+      entryPoints: [websecure]
+      middlewares: [netbird-seul]
+      service: dokploy
+      tls:
+        certResolver: letsencrypt-dns
+
+    # JMAP de Stalwart avec CORS pour Voxel ; le reste de mail.<DOMAINE> (admin, portail) n'en a pas.
+    # Règle plus longue que Host(`mail…`) des labels de Stalwart, donc prioritaire.
+    jmap-universal-email:
+      rule: Host(`mail.__DOMAINE__`) && (PathPrefix(`/jmap`) || Path(`/.well-known/jmap`))
+      entryPoints: [websecure]
+      middlewares: [cors-universal-email]
+      service: stalwart@docker
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    dokploy:
+      loadBalancer:
+        servers:
+          - url: http://dokploy:3000

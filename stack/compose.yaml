@@ -1,0 +1,156 @@
+# Stack tout-en-un : mail (Stalwart), supervision (Prometheus, Grafana) et identité (Keycloak)
+#
+# Profils : mail | monitoring | iam   (COMPOSE_PROFILES=mail,monitoring,iam)
+# Prod    : sudo ./scripts/deploie-prod.sh (compose.yaml + compose.prod.yaml, derrière le Traefik de Dokploy)
+
+name: tout-en-un
+
+x-durci: &durci
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+
+  # ───────────────────────── Zone prod : mail ─────────────────────────
+
+  stalwart:
+    <<: *durci
+    profiles: [mail, all]
+    image: stalwartlabs/stalwart:${STALWART_TAG:-v1.0.1}
+    environment:
+      # Admin fixe (sinon mot de passe aléatoire dans les logs). Identifiant : admin
+      STALWART_RECOVERY_ADMIN: admin:${STALWART_ADMIN_PASSWORD}
+    volumes:
+      # config.json fourni = pas d'assistant d'installation, SMTP/IMAP actifs dès le démarrage
+      - ./stalwart/config.json:/etc/stalwart/config.json:ro
+      - stalwart-data:/var/lib/stalwart
+    ports:
+      - "25:25"     # réception (MX)
+      - "465:465"   # envoi client, TLS implicite
+      - "587:587"   # envoi client, STARTTLS
+      - "993:993"   # IMAPS
+      - "4190:4190" # ManageSieve : fermé par le pare-feu Hetzner ; pour la passerelle IMAP de Voxel et NetBird
+      # l'interface web (8080) n'est PAS publiée : elle passe par Traefik (mail.<DOMAINE>, admin sur /admin)
+    networks: [edge, mail, monitoring]
+    mem_limit: ${STALWART_MEM_LIMIT:-1g}
+
+  # ───────────────────────── Zone prod : supervision ─────────────────────────
+
+  prometheus:
+    <<: *durci
+    profiles: [monitoring, all]
+    image: prom/prometheus:${PROMETHEUS_TAG:-v3.5.0}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=5GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [monitoring]
+    mem_limit: 768m
+
+  grafana:
+    <<: *durci
+    profiles: [monitoring, all]
+    image: grafana/grafana-oss:${GRAFANA_TAG:-11.6.0}
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?définis GRAFANA_ADMIN_PASSWORD dans .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-https://grafana.${DOMAINE}}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks: [edge, monitoring]
+    mem_limit: 256m
+
+  # ───────────────────────── Zone prod : identité ─────────────────────────
+
+  keycloak:
+    <<: *durci
+    profiles: [iam, all]
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_TAG:-26.8.1}
+    command: ["start"]
+    volumes:
+      # Thème « djidjelli » : console d'admin et « Mon compte » sans le logo Keycloak (à choisir dans chaque realm)
+      - ./keycloak/themes/djidjelli:/opt/keycloak/themes/djidjelli:ro
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?définis KEYCLOAK_DB_PASSWORD dans .env}
+      # Tout passe par iam.<DOMAINE>, public : connexion et OIDC des applis, console d'admin sur /admin
+      KC_HOSTNAME: https://iam.${DOMAINE:?}
+      KC_HTTP_ENABLED: "true"           # HTTPS assuré par Traefik
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"         # /health/ready sur le port de gestion 9000, jamais publié
+      # Admin temporaire créé au tout premier démarrage seulement (base vide), à remplacer par « admin » (README)
+      KC_BOOTSTRAP_ADMIN_USERNAME: temp-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?définis KEYCLOAK_ADMIN_PASSWORD dans .env}
+      # Tas Java : 65 % de mem_limit au plus, rendu au système dès qu'il se libère (4 Go pour tout le serveur).
+      # MinHeapFreeRatio doit rester ≤ MaxHeapFreeRatio (kc.sh met 40 par défaut, l'exemple de la doc Keycloak plante).
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=65 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30
+    networks: [iam]
+    # Dans les conteneurs, mail.<DOMAINE> se résout en 127.0.1.1 (/etc/hosts de l'hôte) : les mails de Keycloak
+    # (mot de passe oublié…) passent par l'hôte, qui publie le 465 de Stalwart. Certificat valide, testé le 2026-11-03.
+    extra_hosts:
+      - "mail.${DOMAINE:?}:host-gateway"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      # Pas de curl dans l'image : requête HTTP écrite à la main
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    mem_limit: ${KEYCLOAK_MEM_LIMIT:-1g}
+
+  keycloak-db:
+    <<: *durci
+    profiles: [iam, all]
+    image: postgres:${KEYCLOAK_DB_TAG:-18-alpine}
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?définis KEYCLOAK_DB_PASSWORD dans .env}
+    volumes:
+      - keycloak-db:/var/lib/postgresql   # Postgres 18 : volume monté ici, plus sur .../data
+    networks: [iam]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+
+networks:
+  edge:                 # porte les ports publiés de Stalwart, en IPv4 et en IPv6 : sans IPv6, Docker relaie l'IPv6
+    enable_ipv6: true   # par docker-proxy et Stalwart voit tous ces clients comme 172.22.0.1 (sous-réseau IPv6 : ULA de Docker)
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16   # fixe : la passerelle 172.22.0.1 (conteneurs qui passent par l'IP publique) est dans x:AllowedIp
+  mail: {}
+  monitoring: {}
+  iam:                  # Keycloak et sa base ; la base n'a aucune sortie
+    internal: true
+
+volumes:
+  stalwart-data:
+  prometheus-data:
+  grafana-data:
+  keycloak-db:

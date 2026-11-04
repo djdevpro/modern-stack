@@ -1,0 +1,12 @@
+[Unit]
+Description=Déploiement continu de la stack depuis github.com/djdevpro/modern-stack
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/deploiement-stack
+TimeoutStartSec=20min
+Nice=10
+PrivateTmp=yes
+NoNewPrivileges=yes

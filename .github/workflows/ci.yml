@@ -1,0 +1,115 @@
+# Contrôles de chaque push sur main et de chaque PR. Ces jobs sont exigés pour fusionner dans main, et
+# l'agent du serveur ne déploie qu'un commit dont le workflow « CI » est vert (voir deploiement/).
+# Les outils tournent dans leurs images Docker, épinglées dans .github/outils/Dockerfile.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gitleaks sur tout l'historique
+        run: .github/scripts/outil gitleaks git --redact --no-banner --exit-code 1 .
+
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format
+        run: .github/scripts/outil terraform fmt -check -diff -recursive terraform
+      - name: Validation (sans état distant ni secret)
+        run: |
+          for dossier in terraform terraform/drive; do
+            .github/scripts/outil terraform -chdir="$dossier" init -backend=false -input=false -lockfile=readonly -no-color
+            .github/scripts/outil terraform -chdir="$dossier" validate -no-color
+          done
+      - name: TFLint
+        run: .github/scripts/outil tflint --recursive --config=/travail/.tflint.hcl --format=compact
+
+  config:
+    name: Compose, scripts et workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Docker Compose
+        run: |
+          docker compose --env-file stack/.env.example --project-directory stack \
+            -f stack/compose.yaml -f stack/compose.prod.yaml config --quiet
+      - name: ShellCheck
+        run: >-
+          .github/scripts/outil shellcheck --severity=warning
+          stack/scripts/appli stack/scripts/sw stack/scripts/*.sh
+          deploiement/*.sh terraform/drive/*.sh terraform/drive/app/*.sh terraform/drive/keycloak/*.sh
+          .github/scripts/outil
+      - name: Python et Node (syntaxe)
+        run: |
+          python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \
+            setup.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
+          node --check terraform/drive/keycloak/configure.mjs
+      - name: actionlint
+        run: .github/scripts/outil actionlint -color
+      - name: zizmor (sécurité des workflows)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/outil zizmor --min-severity=medium .github/workflows
+
+  iac:
+    name: Mauvaises configurations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Trivy (Terraform, Dockerfile)
+        run: .github/scripts/outil trivy config --quiet --severity HIGH,CRITICAL --exit-code 1 --skip-dirs .github .
+
+  images:
+    name: CVE des images
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trivy
+        run: .github/scripts/outil --installe trivy "$RUNNER_TEMP/outils"
+      - name: Jour (clé du cache)
+        id: jour
+        run: echo "jour=$(date -u +%F)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ steps.jour.outputs.jour }}
+          restore-keys: trivy-
+      - name: Failles des images changées par la PR
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: TRIVY="$RUNNER_TEMP/outils/trivy" python3 .github/scripts/veille_images.py comparer --base "$BASE"

@@ -1,0 +1,61 @@
+# Dépôt PUBLIC : aucun secret, aucune donnée personnelle.
+# Les secrets vivent hors du dossier, dans le magasin de setup.py (~/.config/modern-stack/secrets.env),
+# et sur le serveur dans /opt/stack/.env.
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+secrets.env
+acces.txt
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+
+# Terraform : état, plans, variables locales (IP de la box), cache des fournisseurs
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+*.tfvars
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Journal et sauvegardes des zones DNS : données de prod et adresses personnelles, gardés sur ce PC
+dns/
+
+# Fichiers propres à ce serveur, gardés hors du dépôt public : notes d'exploitation, consignes des sessions,
+# configuration de prod de Voxel, thèmes Keycloak, valeurs Terraform (*.tfvars, plus haut)
+notes/
+CLAUDE.md
+stack/voxel/
+stack/scripts/deploie-voxel.sh
+stack/keycloak/themes/
+
+# Outils et éditeurs
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+.cache/
+.claude/settings.local.json
+CLAUDE.local.md
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

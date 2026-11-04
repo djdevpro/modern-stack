@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Gère les enregistrements DNS de la zone CF_ZONE avec le jeton CLOUDFLARE_API_TOKEN.
+
+  cf-dns list [filtre]
+  cf-dns add <nom> <contenu> [type] [--proxied] [--force]
+  cf-dns del <nom> [type] [--force]
+
+<nom> est relatif à la zone (app3, app3.api) ou « @ » pour la zone elle-même.
+Type deviné si absent : A ou AAAA pour une IP, CNAME sinon. « add » remplace un enregistrement existant.
+Les noms du mail sont protégés contre les erreurs : --force pour passer outre.
+"""
+import ipaddress
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+API = "https://api.cloudflare.com/client/v4"
+PROTEGES = {"@", "*", "mail", "webmail", "autoconfig", "autodiscover"}
+
+
+def erreur(msg):
+    sys.exit(f"cf-dns : {msg}")
+
+
+def appel(methode, chemin, corps=None):
+    jeton = os.environ.get("CLOUDFLARE_API_TOKEN") or erreur("CLOUDFLARE_API_TOKEN est vide")
+    req = urllib.request.Request(
+        API + chemin,
+        method=methode,
+        data=json.dumps(corps).encode() if corps is not None else None,
+        headers={"Authorization": f"Bearer {jeton}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as rep:
+            return json.load(rep)["result"]
+    except urllib.error.HTTPError as e:
+        try:
+            details = "; ".join(x["message"] for x in json.load(e)["errors"])
+        except Exception:
+            details = e.reason
+        erreur(f"{methode} {chemin} : HTTP {e.code} : {details}")
+
+
+def zone():
+    nom = os.environ.get("CF_ZONE") or erreur("CF_ZONE est vide (ex : mondomaine.fr)")
+    zones = appel("GET", f"/zones?name={nom}")
+    return nom, (zones[0]["id"] if zones else erreur(f"zone {nom} introuvable avec ce jeton"))
+
+
+def complet(nom, domaine):
+    if nom == "@" or nom == domaine:
+        return domaine
+    return nom if nom.endswith("." + domaine) else f"{nom}.{domaine}"
+
+
+def protege(nom, domaine):
+    court = "@" if nom in ("@", domaine) else nom.removesuffix("." + domaine)
+    return court in PROTEGES or court.startswith("_") or "._" in court
+
+
+def enregistrements(zid, nom=None, type_=None):
+    filtre = "".join([f"&name={nom}" if nom else "", f"&type={type_}" if type_ else ""])
+    return appel("GET", f"/zones/{zid}/dns_records?per_page=500{filtre}")
+
+
+def main(args):
+    options = {a for a in args if a.startswith("--")}
+    args = [a for a in args if not a.startswith("--")]
+    if not args or args[0] not in ("list", "add", "del"):
+        sys.exit(__doc__)
+    commande, args = args[0], args[1:]
+    domaine, zid = zone()
+
+    if commande == "list":
+        for r in sorted(enregistrements(zid), key=lambda r: (r["name"], r["type"])):
+            if not args or args[0] in r["name"]:
+                nuage = "proxied" if r.get("proxied") else "dns-only"
+                print(f'{r["type"]:6} {r["name"]:45} {r["content"]}  ({nuage})')
+        return
+
+    if not args:
+        sys.exit(__doc__)
+    nom = complet(args[0], domaine)
+    if protege(args[0], domaine) and "--force" not in options:
+        erreur(f"{nom} est protégé (mail, enregistrements techniques) : ajoute --force si c'est voulu")
+
+    if commande == "add":
+        if len(args) < 2:
+            sys.exit(__doc__)
+        contenu = args[1]
+        if len(args) > 2:
+            type_ = args[2].upper()
+        else:
+            try:
+                type_ = "AAAA" if ipaddress.ip_address(contenu).version == 6 else "A"
+            except ValueError:
+                type_ = "CNAME"
+        corps = {"type": type_, "name": nom, "content": contenu, "ttl": 1, "proxied": "--proxied" in options}
+        existants = enregistrements(zid, nom, type_)
+        if existants:
+            appel("PUT", f'/zones/{zid}/dns_records/{existants[0]["id"]}', corps)
+            print(f"modifié : {type_} {nom} -> {contenu}")
+        else:
+            appel("POST", f"/zones/{zid}/dns_records", corps)
+            print(f"créé : {type_} {nom} -> {contenu}")
+        return
+
+    cibles = enregistrements(zid, nom, args[1].upper() if len(args) > 1 else None)
+    if not cibles:
+        erreur(f"aucun enregistrement {nom}")
+    for r in cibles:
+        appel("DELETE", f'/zones/{zid}/dns_records/{r["id"]}')
+        print(f'supprimé : {r["type"]} {r["name"]} -> {r["content"]}')
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

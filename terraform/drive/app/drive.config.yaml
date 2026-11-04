@@ -1,0 +1,62 @@
+# Mode instance en production : montée sur /config/drive.config.yaml, secrets par ${VAR} depuis le .env.
+version: 1
+
+instance:
+  connection: drive                        # URL des fichiers : /d/drive/b/<espace>/…
+  name: ${UD_INSTANCE_NAME}
+
+auth:
+  oidc:
+    issuer: ${UD_OIDC_ISSUER}
+    clientId: ${UD_OIDC_CLIENT_ID:-drive}
+    clientSecret: ${UD_OIDC_CLIENT_SECRET}
+    scopes: [openid, profile, email]
+    # Rôles du client « drive » seulement, jamais ceux du realm partagé.
+    roleClaims: [resource_access.drive.roles]
+    label: ${UD_OIDC_LABEL}
+
+storages:
+  hetzner:
+    endpoint: ${UD_S3_ENDPOINT:-https://nbg1.your-objectstorage.com}
+    region: ${UD_S3_REGION:-nbg1}
+    addressing: ${UD_S3_ADDRESSING:-virtual}       # Hetzner : virtual
+    accessKeyId: ${UD_S3_ACCESS_KEY_ID}
+    secretAccessKey: ${UD_S3_SECRET_ACCESS_KEY}
+
+spaces:
+  home:                                    # drive personnel de chacun
+    storage: hetzner
+    bucket: ${UD_S3_BUCKET}
+    prefix: users/{userId}/
+  commun:
+    name: { fr: Commun, en: Shared }
+    storage: hetzner
+    bucket: ${UD_S3_BUCKET}
+    prefix: commun/
+    quota: 50GB
+
+roles:
+  super_admin:
+    from: [super-admin]
+    quota: unlimited
+    spaces: { "*": [read, write, delete, share] }
+    links: { public: true, people: true, maxDays: 0 }
+    admin: ["*"]
+  admin:
+    from: [admin]
+    quota: 10GB
+    spaces: { home: [read, write, delete, share], commun: [read, write, delete, share] }
+    links: { public: true, people: true, maxDays: 90 }
+    admin: [users.read, users.manage, reports.manage, audit.read, files.inspect]
+  user:
+    from: [user]
+    quota: 1GB
+    spaces: { home: [read, write, delete, share], commun: [read] }
+    links: { public: false, people: true, maxDays: 30 }
+
+legal:
+  # À changer à chaque modification de terms.md : chacun devra accepter la nouvelle version.
+  termsVersion: "2026-11-03"
+  termsUrl: null                           # texte servi par le Drive : UD_TERMS_FILE=/config/terms.md
+  uploadLogDays: 365                       # journal des envois : 1 an (décret n° 2021-1362)
+  abuseEmail: ${UD_ABUSE_EMAIL:-}

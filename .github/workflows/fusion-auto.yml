@@ -1,0 +1,42 @@
+# Fusion automatique des PR Dependabot sans risque : correctifs (patch), images reconstruites (même version,
+# nouvelle empreinte), actions GitHub et Postgres en version mineure (correctifs seulement chez Postgres).
+# GitHub ne fusionne que lorsque la CI exigée par les règles de main est verte ; l'agent du serveur déploie
+# ensuite. Une version mineure ou majeure d'une image attend une fusion à la main.
+name: Fusion automatique
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  dependabot:
+    name: Dependabot
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'djdevpro/modern-stack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: Active la fusion automatique si la mise à jour est sans risque
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.html_url }}
+          TITRE: ${{ github.event.pull_request.title }}
+          TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEME: ${{ steps.meta.outputs.package-ecosystem }}
+          DEPENDANCES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          auto=non
+          case "$TYPE" in
+            version-update:semver-patch) auto=oui ;;
+            version-update:semver-minor)
+              if [ "$ECOSYSTEME" = github_actions ] || [ "$DEPENDANCES" = postgres ]; then auto=oui; fi ;;
+            "")  # même version, image reconstruite : « Bump x from <empreinte> to <empreinte> »
+              if grep -qE 'from .[0-9a-f]{7,12}. to .[0-9a-f]{7,12}.' <<<"$TITRE"; then auto=oui; fi ;;
+          esac
+          echo "$DEPENDANCES ($ECOSYSTEME, ${TYPE:-nouvelle empreinte}) : fusion automatique $auto"
+          if [ "$auto" = oui ]; then gh pr merge --auto --squash "$PR"; fi

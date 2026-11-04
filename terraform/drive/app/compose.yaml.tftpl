@@ -1,0 +1,64 @@
+# Universal Drive (${host}) derrière le Traefik de Dokploy. Rendu, déposé et lancé par Terraform
+# (terraform/drive) dans /opt/universal-drive : src/ = code de github.com/djdevpro/s3drive au commit
+# déployé, config/ = configuration du mode instance et conditions, .env = variables (Terraform).
+name: universal-drive
+
+services:
+  drive:
+    build: ./src
+    image: universal-drive:latest
+    container_name: universal-drive
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      UD_DATA_DIR: /data
+      NODE_OPTIONS: --max-old-space-size=320
+    volumes:
+      - ud-data:/data
+      - ./config/drive.config.yaml:/config/drive.config.yaml:ro
+      - ./config/terms.md:/config/terms.md:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Le serveur a 4 Go pour tout (Keycloak, Stalwart, Voxel…).
+    deploy:
+      resources:
+        limits:
+          memory: 448M
+          cpus: "1.0"
+        reservations:
+          memory: 96M
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.universal-drive.rule=Host(`${host}`)
+      - traefik.http.routers.universal-drive.entrypoints=websecure
+      - traefik.http.routers.universal-drive.tls=true
+      - traefik.http.routers.universal-drive.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.universal-drive.service=universal-drive
+      - traefik.http.services.universal-drive.loadbalancer.server.port=8080
+      - traefik.http.routers.universal-drive-http.rule=Host(`${host}`)
+      - traefik.http.routers.universal-drive-http.entrypoints=web
+      - traefik.http.routers.universal-drive-http.middlewares=redirect-to-https@file
+      - traefik.http.routers.universal-drive-http.service=noop@internal
+
+volumes:
+  ud-data:
+
+networks:
+  dokploy-network:
+    external: true

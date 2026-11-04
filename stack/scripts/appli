@@ -1,0 +1,59 @@
+#!/bin/sh
+# Prépare le DNS d'une appli déployée avec Dokploy, publique ou réservée à NetBird.
+#   appli publique <nom>          <nom>.<zone> vers l'IP publique ; puis domaine HTTPS dans Dokploy
+#   appli netbird <nom> <port>    <nom>.<zone> vers l'IP NetBird ; affiche les labels Traefik à coller
+#   appli supprime <nom>          retire le nom du DNS
+# Zone : CF_ZONE (~/.config/cloudflare/env), ex. CF_ZONE=autredomaine.fr appli publique site
+set -eu
+[ -r "$HOME/.config/cloudflare/env" ] && . "$HOME/.config/cloudflare/env"
+ZONE=${CF_ZONE:?CF_ZONE vide}
+ip_de() { ip -o -"$1" addr show dev "$2" scope global 2>/dev/null | awk '{sub("/.*", "", $4); print $4; exit}'; }
+usage() { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+[ $# -ge 2 ] || usage
+NOM=$2; HOTE="$NOM.$ZONE"; ROUTEUR=$(printf %s "$HOTE" | tr '.' '-')
+
+case "$1" in
+  publique)
+    cf-dns add "$NOM" "$(ip_de 4 eth0)"
+    V6=$(ip_de 6 eth0); [ -n "$V6" ] && cf-dns add "$NOM" "$V6"
+    cat <<EOF
+
+Dans Dokploy : ton appli > Domains > Add Domain
+  Host : $HOTE   HTTPS : activé   Certificate : letsencrypt
+EOF
+    ;;
+  netbird)
+    PORT=${3:?port du conteneur manquant (ex. 3000)}
+    cf-dns add "$NOM" "$(ip_de 4 wt0)"
+    cat <<EOF
+
+Dans Dokploy, ne crée PAS de domaine pour cette appli. À la place :
+
+Appli (Application) : Advanced > Swarm Settings > Labels
+{
+  "traefik.enable": "true",
+  "traefik.http.routers.$ROUTEUR.rule": "Host(\`$HOTE\`)",
+  "traefik.http.routers.$ROUTEUR.entrypoints": "websecure",
+  "traefik.http.routers.$ROUTEUR.tls.certresolver": "letsencrypt-dns",
+  "traefik.http.routers.$ROUTEUR.middlewares": "netbird-seul@file",
+  "traefik.http.services.$ROUTEUR.loadbalancer.server.port": "$PORT"
+}
+
+Compose : sur le service exposé (et le service branché au réseau externe dokploy-network)
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.$ROUTEUR.rule=Host(\`$HOTE\`)
+      - traefik.http.routers.$ROUTEUR.entrypoints=websecure
+      - traefik.http.routers.$ROUTEUR.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.$ROUTEUR.middlewares=netbird-seul@file
+      - traefik.http.services.$ROUTEUR.loadbalancer.server.port=$PORT
+
+Puis redéploie : https://$HOTE ne s'ouvrira que depuis un appareil connecté à NetBird.
+EOF
+    ;;
+  supprime)
+    cf-dns del "$NOM"
+    ;;
+  *) usage ;;
+esac

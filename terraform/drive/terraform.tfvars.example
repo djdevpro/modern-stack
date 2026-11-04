@@ -1,0 +1,12 @@
+# Copie en terraform.tfvars (non versionné) et adapte. Les secrets passent par setup.py, jamais par ici.
+bucket_name          = "mon-drive"
+dns_zone             = "mondomaine.fr"
+dns_name             = "drive"                      # https://drive.mondomaine.fr
+instance_name        = "Mon Drive"
+keycloak_url         = "https://iam.mondomaine.fr"
+keycloak_realm       = "monrealm"
+oidc_label           = "iam.mondomaine.fr"
+admin_user           = "admin"
+ssh_private_key_path = "~/.ssh/id_ed25519"
+# terms_file         = "../../notes/drive/terms.md"  # conditions réelles, hors du dépôt
+# abuse_email        = "abus@mondomaine.fr"

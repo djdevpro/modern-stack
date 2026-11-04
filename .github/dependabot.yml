@@ -1,0 +1,60 @@
+# Mises à jour automatiques. Les correctifs (patch) et les images reconstruites (même version, nouvelle
+# empreinte) sont fusionnés seuls quand la CI passe (workflows/fusion-auto.yml), puis déployés par l'agent
+# du serveur ; les versions mineures et majeures des images attendent une fusion à la main.
+version: 2
+updates:
+  - package-ecosystem: docker-compose
+    directory: /stack
+    schedule:
+      interval: daily
+      time: "05:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 10
+    labels: [dependances]
+    ignore:
+      # Versions majeures (Postgres : migration des données ; Keycloak, Grafana : changements cassants) à faire
+      # à la main. Sans cette règle, Dependabot proposerait la majeure au lieu du correctif de la version en place.
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker
+    directory: /stack/tools
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Paris
+    labels: [dependances]
+
+  - package-ecosystem: docker
+    directory: /.github/outils
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Paris
+    labels: [dependances]
+    groups:
+      outils-ci:
+        patterns: ["*"]
+
+  - package-ecosystem: terraform
+    directories: [/terraform, /terraform/drive]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Paris
+    labels: [dependances]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Paris
+    labels: [dependances]
+    groups:
+      actions:
+        patterns: ["*"]

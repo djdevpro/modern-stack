@@ -78,8 +78,8 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
-      UE_TRUST_PROXY: "1"
-      UE_ALLOWED_EMAIL_DOMAINS: ${UE_ALLOWED_EMAIL_DOMAINS:-}   # vide = tous les domaines
+      VOXEL_TRUST_PROXY: "1"   # adresse réelle des visiteurs lue dans X-Forwarded-For (Traefik)
+      VOXEL_ALLOWED_EMAIL_DOMAINS: ${VOXEL_ALLOWED_EMAIL_DOMAINS:-}   # vide = tous les domaines
     extra_hosts:
       # Sur l'hôte, mail.<DOMAINE> se résout en 127.0.1.1 : la passerelle IMAP joint Stalwart par l'IP publique.
       - "mail.${DOMAINE:?}:${SERVEUR_IPV4:?définis SERVEUR_IPV4 dans .env}"

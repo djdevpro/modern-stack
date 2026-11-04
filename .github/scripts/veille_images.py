@@ -44,6 +44,7 @@ DETAILS_MAX = 15
 # prête toutes les failles historiques (ex. Grafana 11.6.5 : CVE-2018-15727). Le même module, version lue
 # dans les autres binaires de l'image, reste analysé.
 VERSION_ILLISIBLE = re.compile(r"^v0\.0\.0-\d{14}-[0-9a-f]{12}\+dirty$")
+APPLIS = "ghcr.io/djdevpro/"  # images construites par nos propres dépôts
 
 
 class Image:
@@ -249,6 +250,27 @@ def veille(args: argparse.Namespace) -> int:
     return 0
 
 
+def applis(args: argparse.Namespace) -> int:
+    """Applis maison : nouvelle image publiée sous l'étiquette épinglée (push sur leur main)."""
+    maj = []
+    for image in images():
+        if image.nom.startswith(APPLIS) and image.empreinte and image.etiquette:
+            actuelle = empreinte_actuelle(image)
+            if actuelle and actuelle != image.empreinte:
+                maj.append((image, f"{image.court}@{actuelle}"))
+    if not maj:
+        resume("Aucune nouvelle image des applis maison.")
+        return 0
+    Path(args.maj).write_text("".join(f"{i.ref}\t{nouvelle}\n" for i, nouvelle in maj), encoding="utf-8")
+    pr = ["Nouvelles images des applis maison (push sur leur branche main). Fusion automatique quand la CI "
+          "passe, puis déploiement par l'agent du serveur.", "", "| Image | Avant | Après |", "|---|---|---|"]
+    for image, nouvelle in maj:
+        pr.append(f"| `{image.court}` | `{image.empreinte[7:19]}` | `{nouvelle.rpartition(':')[2][:12]}` |")
+    Path(args.maj).with_name("pr.md").write_text("\n".join(pr) + "\n", encoding="utf-8")
+    resume("\n".join(pr))
+    return 0
+
+
 def git_show(ref: str, chemin: str) -> str:
     return subprocess.run(["git", "-C", str(RACINE), "show", f"{ref}:{chemin}"],
                           capture_output=True, encoding="utf-8", errors="replace", check=True).stdout
@@ -301,6 +323,9 @@ def main() -> int:
     p = sous.add_parser("comparer")
     p.add_argument("--base", required=True)
     p.set_defaults(fonction=comparer)
+    p = sous.add_parser("applis")
+    p.add_argument("--maj", required=True)
+    p.set_defaults(fonction=applis)
     p = sous.add_parser("appliquer")
     p.add_argument("fichier")
     p.set_defaults(fonction=appliquer)

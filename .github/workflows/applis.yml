@@ -1,0 +1,38 @@
+# Applis maison : toutes les 15 minutes, si Voxel ou le Drive ont publié une nouvelle image (push sur leur main),
+# ouvre une PR qui met à jour son empreinte dans stack/. Elle est fusionnée seule quand la CI passe, puis
+# déployée par l'agent du serveur. (Dependabot ne passe qu'une fois par jour.)
+name: Applis maison
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: applis
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Nouvelles images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write       # branche de la PR
+      pull-requests: write  # PR et fusion automatique
+      actions: write        # lance la CI sur la branche
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cherche les nouvelles images
+        run: python3 .github/scripts/veille_images.py applis --maj "$RUNNER_TEMP/maj.tsv"
+      - name: PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          .github/scripts/pr-images.sh "$RUNNER_TEMP/maj.tsv" "$RUNNER_TEMP/pr.md" applis-auto
+          "Update in-house app images" "applis/images-$(date -u +%Y%m%d-%H%M)"

@@ -65,7 +65,7 @@ jobs:
           .github/scripts/outil shellcheck --severity=warning
           stack/scripts/appli stack/scripts/sw stack/scripts/*.sh
           deploiement/*.sh terraform/drive/*.sh terraform/drive/app/*.sh terraform/drive/keycloak/*.sh
-          .github/scripts/outil
+          .github/scripts/outil .github/scripts/pr-images.sh
       - name: Python et Node (syntaxe)
         run: |
           python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \

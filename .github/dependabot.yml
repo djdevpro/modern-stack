@@ -3,12 +3,13 @@
 # du serveur ; les versions mineures et majeures des images attendent une fusion à la main.
 version: 2
 updates:
-  # Toutes les heures : une nouvelle image de Voxel ou du Drive (push sur leur main) arrive en prod dans l'heure.
+  # Une fois par jour (le minimum de Dependabot) ; les images des applis maison passent aussi par
+  # workflows/applis.yml, toutes les 15 minutes.
   - package-ecosystem: docker-compose
     directory: /stack
     schedule:
-      interval: cron
-      cronjob: "0 * * * *"
+      interval: daily
+      time: "05:00"
       timezone: Europe/Paris
     open-pull-requests-limit: 10
     labels: [dependances]

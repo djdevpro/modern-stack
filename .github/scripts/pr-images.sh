@@ -1,6 +1,6 @@
 #!/bin/bash
-# Ouvre une PR qui applique les nouvelles références d'images (ancienne<TAB>nouvelle, une par ligne), lance la CI
-# dessus (une PR ouverte avec GITHUB_TOKEN ne la déclenche pas) et active la fusion automatique.
+# Ouvre une PR qui applique les nouvelles références d'images (ancienne<TAB>nouvelle, une par ligne), approuve
+# ses workflows (GitHub les met en attente : la PR vient de github-actions) et active la fusion automatique.
 #   pr-images.sh <maj.tsv> <corps.md> <étiquette> <titre> <branche>
 # Ne fait rien s'il n'y a rien à mettre à jour ou si une PR de la même étiquette est déjà ouverte.
 set -euo pipefail
@@ -19,5 +19,17 @@ git commit -qam "$titre"
 auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
 git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branche"
 gh pr create --base main --head "$branche" --label "$etiquette" --title "$titre" --body-file "$corps"
-gh workflow run ci.yml --ref "$branche"
 gh pr merge "$branche" --auto --squash
+
+# La CI de la PR attend une approbation : on l'approuve (sinon la PR reste bloquée, à approuver à la main).
+attente=""
+for _ in 1 2 3 4 5 6 7 8 9; do
+	sleep 10
+	attente=$(gh run list --branch "$branche" --json databaseId,conclusion \
+		--jq '.[] | select(.conclusion == "action_required") | .databaseId')
+	[ -z "$attente" ] || break
+done
+for id in $attente; do
+	gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/approve" >/dev/null ||
+		echo "::warning::Workflow $id à approuver à la main (Actions > Approve and run)"
+done

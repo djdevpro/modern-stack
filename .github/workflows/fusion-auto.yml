@@ -29,14 +29,19 @@ jobs:
           TYPE: ${{ steps.meta.outputs.update-type }}
           ECOSYSTEME: ${{ steps.meta.outputs.package-ecosystem }}
           DEPENDANCES: ${{ steps.meta.outputs.dependency-names }}
+          AVANT: ${{ steps.meta.outputs.previous-version }}
+          APRES: ${{ steps.meta.outputs.new-version }}
         run: |
           auto=non
           case "$TYPE" in
             version-update:semver-patch) auto=oui ;;
             version-update:semver-minor)
               if [ "$ECOSYSTEME" = github_actions ] || [ "$DEPENDANCES" = postgres ]; then auto=oui; fi ;;
-            "")  # même version, image reconstruite : « Bump x from <empreinte> to <empreinte> »
-              if grep -qE 'from .[0-9a-f]{7,12}. to .[0-9a-f]{7,12}.' <<<"$TITRE"; then auto=oui; fi ;;
+            "")  # même version, nouvelle empreinte : « from <empreinte> to <empreinte> » ou « from main to main »
+              if grep -qE 'from .[0-9a-f]{7,12}. to .[0-9a-f]{7,12}.' <<<"$TITRE" ||
+                { [ -n "$AVANT" ] && [ "$AVANT" = "$APRES" ]; }; then
+                auto=oui
+              fi ;;
           esac
           echo "$DEPENDANCES ($ECOSYSTEME, ${TYPE:-nouvelle empreinte}) : fusion automatique $auto"
           if [ "$auto" = oui ]; then gh pr merge --auto --squash "$PR"; fi

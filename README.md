@@ -16,6 +16,6 @@ A self-hosted platform on a single small server: mail, single sign-on, monitorin
 | `terraform/` | Server, firewall, reverse DNS |
 | `stack/` | Core services (Docker Compose) and helper scripts |
 | `deploiement/` | Pull-based deployment agent |
-| `.github/` | CI, nightly CVE scan, Dependabot |
+| `.github/` | CI, deployment status, nightly CVE scan, Dependabot |
 
 No secrets live in this repository.

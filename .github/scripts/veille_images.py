@@ -179,6 +179,8 @@ def ecrire_sarif(chemin: str, analyses: list) -> None:
 def correction(image: Image, reconstruite: dict | None, prs: list[dict]) -> str:
     if reconstruite:
         return "image reconstruite par l'éditeur : PR de sécurité automatique"
+    if image.fichier.endswith("recree-traefik.sh"):
+        return "géré par Dokploy, hors Dependabot : mise à jour à la main"
     liens = [f"[#{p['number']}]({p['url']})" for p in prs if image.nom in p["title"]]
     if liens:
         return "PR Dependabot " + ", ".join(liens)

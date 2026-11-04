@@ -14,7 +14,7 @@ terraform {
     # Résout le dernier commit du dépôt du Drive sur GitHub (déploiement à un commit exact).
     http = {
       source  = "hashicorp/http"
-      version = "3.6.2"
+      version = "3.6.3"
     }
     cloudflare = {
       source  = "cloudflare/cloudflare"

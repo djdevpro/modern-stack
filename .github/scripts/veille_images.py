@@ -33,6 +33,7 @@ TRIVY = shlex.split(os.environ.get("TRIVY", "trivy"))
 # Fichier -> motif qui y trouve les images (groupe 1)
 SOURCES = {
     "stack/compose.yaml": re.compile(r"^\s*image:\s*[\"']?([^\s\"'#]+)", re.M),
+    "stack/compose.prod.yaml": re.compile(r"^\s*image:\s*[\"']?([^\s\"'#]+)", re.M),
     "stack/tools/Dockerfile": re.compile(r"^FROM\s+(?:--\S+\s+)*(\S+)", re.M),
     "stack/scripts/recree-traefik.sh": re.compile(r"\b(traefik:v[\w.-]+(?:@sha256:[0-9a-f]{64})?)"),
 }

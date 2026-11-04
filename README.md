@@ -6,6 +6,7 @@ A self-hosted platform on a single small server: mail, single sign-on, monitorin
 
 - **Terraform** creates the server (Hetzner) with its firewall; private admin access goes through a NetBird VPN.
 - **Docker Compose** runs the core services: Stalwart (mail), Keycloak (single sign-on), Prometheus and Grafana (monitoring), behind Traefik with automatic HTTPS. Dokploy deploys the other apps.
+- **In-house apps** ([Voxel](https://github.com/djdevpro/voxel) webmail, [S3drive](https://github.com/djdevpro/s3drive)) build their own images on GitHub; the stack pins them like any other image.
 - **Git is the source of truth.** A small agent on the server pulls `main`, waits for a green CI, applies the change and checks the containers are healthy. Nothing can push into the server.
 - **Security updates are automatic.** Images are pinned by digest. Every night Trivy scans them for CVEs, Dependabot opens the fix, and safe patches are merged and deployed without anyone touching the server.
 

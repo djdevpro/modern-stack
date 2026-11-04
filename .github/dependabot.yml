@@ -3,11 +3,12 @@
 # du serveur ; les versions mineures et majeures des images attendent une fusion à la main.
 version: 2
 updates:
+  # Toutes les heures : une nouvelle image de Voxel ou du Drive (push sur leur main) arrive en prod dans l'heure.
   - package-ecosystem: docker-compose
     directory: /stack
     schedule:
-      interval: daily
-      time: "05:00"
+      interval: cron
+      cronjob: "0 * * * *"
       timezone: Europe/Paris
     open-pull-requests-limit: 10
     labels: [dependances]

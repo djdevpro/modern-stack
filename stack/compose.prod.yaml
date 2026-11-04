@@ -3,7 +3,7 @@
 #
 # Public            : mail.<DOMAINE> (interface Stalwart, admin sur /admin), autoconfig/autodiscover,
 #                     iam.<DOMAINE> (Keycloak, console d'admin sur /admin), certificat « letsencrypt » (défi HTTP).
-#                     webmail.<DOMAINE> : Voxel, routé par son propre compose.
+#                     webmail.<DOMAINE> : Voxel (profil webmail) ; drive.<DOMAINE> : le Drive (profil drive).
 # Réservé à NetBird : grafana.<DOMAINE> et stalwart.<DOMAINE> (la connexion admin y échoue : utilise mail.<DOMAINE>/admin) ;
 #                     dokploy.<DOMAINE> est dans traefik/prod-dynamic.yml.
 #                     Certificat « letsencrypt-dns » (défi DNS Cloudflare), middleware netbird-seul@file.
@@ -60,6 +60,92 @@ services:
       traefik.http.routers.iam-http.entrypoints: web
       traefik.http.routers.iam-http.middlewares: redirect-to-https@file
       traefik.http.services.keycloak.loadbalancer.server.port: "8080"
+
+  # ───────────────────────── Applis maison ─────────────────────────
+  # Images construites par leur propre dépôt (github.com/djdevpro/voxel, …/s3drive) à chaque push sur main,
+  # épinglées ici par empreinte : Dependabot propose chaque nouvelle image, l'agent du serveur la déploie.
+  # Seulement sur le réseau de Traefik, comme les applis Dokploy.
+
+  voxel:
+    profiles: [webmail, all]
+    image: ghcr.io/djdevpro/voxel:main@sha256:6a05d567f317209a71e4c9217956ab3ea2a19d3f1c6ba668246af0ec4285a0e3
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      UE_TRUST_PROXY: "1"
+      UE_ALLOWED_EMAIL_DOMAINS: ${UE_ALLOWED_EMAIL_DOMAINS:-}   # vide = tous les domaines
+    extra_hosts:
+      # Sur l'hôte, mail.<DOMAINE> se résout en 127.0.1.1 : la passerelle IMAP joint Stalwart par l'IP publique.
+      - "mail.${DOMAINE:?}:${SERVEUR_IPV4:?définis SERVEUR_IPV4 dans .env}"
+    volumes:
+      - voxel-data:/data
+      - ./voxel/config.json:/app/apps/web/dist/config.json:ro   # domaines des boîtes : fichier du serveur, hors dépôt
+    networks: [dokploy-network]
+    mem_limit: 256m
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.voxel.rule: Host(`webmail.${DOMAINE:?}`)
+      traefik.http.routers.voxel.entrypoints: websecure
+      traefik.http.routers.voxel.tls.certresolver: letsencrypt
+      traefik.http.routers.voxel-http.rule: Host(`webmail.${DOMAINE:?}`)
+      traefik.http.routers.voxel-http.entrypoints: web
+      traefik.http.routers.voxel-http.middlewares: redirect-to-https@file
+      traefik.http.services.voxel.loadbalancer.server.port: "8080"
+
+  # .env, configuration et conditions d'utilisation : déposés par Terraform (terraform/drive) dans DRIVE_DIR.
+  drive:
+    profiles: [drive, all]
+    image: ghcr.io/djdevpro/s3drive:main@sha256:9133171a4c0499c08d9e5b04ae6e8b5598f69c9a0f618db46585e3de19b7565b
+    restart: unless-stopped
+    env_file:
+      - path: ${DRIVE_DIR:-/opt/drive}/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      UD_DATA_DIR: /data
+      NODE_OPTIONS: --max-old-space-size=320
+    volumes:
+      - drive-data:/data
+      - ${DRIVE_DIR:-/opt/drive}/config/drive.config.yaml:/config/drive.config.yaml:ro
+      - ${DRIVE_DIR:-/opt/drive}/config/terms.md:/config/terms.md:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [dokploy-network]
+    mem_limit: 448m
+    cpus: 1.0
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.drive.rule: Host(`drive.${DOMAINE:?}`)
+      traefik.http.routers.drive.entrypoints: websecure
+      traefik.http.routers.drive.tls.certresolver: letsencrypt-dns
+      traefik.http.routers.drive-http.rule: Host(`drive.${DOMAINE:?}`)
+      traefik.http.routers.drive-http.entrypoints: web
+      traefik.http.routers.drive-http.middlewares: redirect-to-https@file
+      traefik.http.services.drive.loadbalancer.server.port: "8080"
+
+volumes:
+  voxel-data:
+  drive-data:
 
 networks:
   dokploy-network:

@@ -12,8 +12,9 @@ updates:
     open-pull-requests-limit: 10
     labels: [dependances]
     ignore:
-      # Version majeure de Postgres = migration des données (pg_upgrade) : à faire à la main.
-      - dependency-name: postgres
+      # Versions majeures (Postgres : migration des données ; Keycloak, Grafana : changements cassants) à faire
+      # à la main. Sans cette règle, Dependabot proposerait la majeure au lieu du correctif de la version en place.
+      - dependency-name: "*"
         update-types: [version-update:semver-major]
 
   - package-ecosystem: docker

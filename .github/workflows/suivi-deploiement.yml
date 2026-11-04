@@ -28,6 +28,7 @@ jobs:
       - name: Statut du commit et issue
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}  # pas de checkout : gh doit savoir quel dépôt viser
           DEPOT: ${{ github.repository }}
         run: |
           set -euo pipefail

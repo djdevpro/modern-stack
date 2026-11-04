@@ -68,7 +68,7 @@ services:
 
   voxel:
     profiles: [webmail, all]
-    image: ghcr.io/djdevpro/voxel:main@sha256:6a05d567f317209a71e4c9217956ab3ea2a19d3f1c6ba668246af0ec4285a0e3
+    image: ghcr.io/djdevpro/voxel:main@sha256:9ae96c11288ef9d00881d8d650e874e04a1cc2eee570c60b8286a268cf6f04c6
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

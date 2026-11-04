@@ -39,6 +39,10 @@ SOURCES = {
 GRAVITES = ("CRITICAL", "HIGH")
 NOMS = {"CRITICAL": "critique", "HIGH": "haute"}
 DETAILS_MAX = 15
+# Module principal d'un binaire Go compilé depuis un arbre modifié : Trivy ne connaît pas sa version et lui
+# prête toutes les failles historiques (ex. Grafana 11.6.5 : CVE-2018-15727). Le même module, version lue
+# dans les autres binaires de l'image, reste analysé.
+VERSION_ILLISIBLE = re.compile(r"^v0\.0\.0-\d{14}-[0-9a-f]{12}\+dirty$")
 
 
 class Image:
@@ -91,12 +95,14 @@ def analyser(ref: str) -> list[dict]:
     sortie = subprocess.run(
         [*TRIVY, "image", "--quiet", "--format", "json", "--scanners", "vuln", "--image-src", "remote",
          "--severity", ",".join(GRAVITES), "--ignore-unfixed", ref],
-        capture_output=True, text=True, check=False)
+        capture_output=True, encoding="utf-8", errors="replace", check=False)
     if sortie.returncode:
         raise SystemExit(f"Trivy a échoué sur {ref} :\n{sortie.stderr[-2000:]}")
     failles = {}
     for resultat in json.loads(sortie.stdout).get("Results") or []:
         for v in resultat.get("Vulnerabilities") or []:
+            if VERSION_ILLISIBLE.match(v.get("InstalledVersion", "")):
+                continue
             failles[(v["VulnerabilityID"], v["PkgName"])] = {
                 "id": v["VulnerabilityID"],
                 "gravite": v.get("Severity", "HIGH"),
@@ -119,7 +125,7 @@ def empreinte_actuelle(image: Image) -> str:
     """Empreinte actuelle de l'étiquette dans le registre (index multi-architecture)."""
     sortie = subprocess.run(
         ["docker", "buildx", "imagetools", "inspect", image.court, "--format", "{{json .Manifest}}"],
-        capture_output=True, text=True, check=False)
+        capture_output=True, encoding="utf-8", errors="replace", check=False)
     if sortie.returncode:
         print(f"Empreinte de {image.court} illisible : {sortie.stderr.strip()[:300]}", file=sys.stderr)
         return ""
@@ -242,7 +248,7 @@ def veille(args: argparse.Namespace) -> int:
 
 def git_show(ref: str, chemin: str) -> str:
     return subprocess.run(["git", "-C", str(RACINE), "show", f"{ref}:{chemin}"],
-                          capture_output=True, text=True, check=True).stdout
+                          capture_output=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
 def comparer(args: argparse.Namespace) -> int:

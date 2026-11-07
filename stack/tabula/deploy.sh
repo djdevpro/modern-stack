@@ -13,6 +13,8 @@ backup_dir=/opt/backups/tabula
 install -d -m 700 "$backup_dir"
 database_id=$(compose ps -q database)
 if [ -n "$database_id" ]; then
+  # Preserve existing signing keys before replacing a container from older deployments.
+  docker exec "$database_id" sh -ec 'if [ ! -f /home/spacetime/data/identity/id_ecdsa ]; then mkdir -p /home/spacetime/data/identity; chmod 700 /home/spacetime/data/identity; cp /home/spacetime/.config/spacetime/id_ecdsa* /home/spacetime/data/identity/; chmod 600 /home/spacetime/data/identity/id_ecdsa; fi'
   backup="$backup_dir/$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
   compose stop database
   trap 'compose start database >/dev/null || true' EXIT
@@ -22,6 +24,7 @@ if [ -n "$database_id" ]; then
   cp /opt/tabula/.env "$backup.env"
   if [ -f /opt/tabula/.env.previous ]; then cp /opt/tabula/.env.previous "$backup.previous.env"; fi
 fi
+compose run --rm --no-deps -T --entrypoint sh database -ec 'mkdir -p /home/spacetime/data/identity; chmod 700 /home/spacetime/data/identity'
 compose up -d database
 ready=false
 for _attempt in $(seq 1 60); do

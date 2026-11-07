@@ -12,3 +12,8 @@ DOMAINE=$(sed -n 's/^DOMAINE=//p' .env)
 sed -e "s/__DOMAINE__/$DOMAINE/g" traefik/prod-dynamic.yml > /etc/dokploy/traefik/tout-en-un.yml.tmp
 mv /etc/dokploy/traefik/tout-en-un.yml.tmp /etc/dokploy/traefik/dynamic/tout-en-un.yml
 docker compose -f compose.yaml -f compose.prod.yaml up -d --remove-orphans
+
+# Tabula is enabled only after its private configuration is installed.
+if [ -f /opt/tabula/.env ]; then
+  bash tabula/deploy.sh
+fi

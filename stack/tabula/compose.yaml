@@ -1,0 +1,70 @@
+name: tabula
+services:
+  database:
+    image: ${TABULA_MODULE_IMAGE:?Use an immutable release digest}
+    entrypoint: [spacetime]
+    command: [start, --data-dir, /home/spacetime/data, --non-interactive, --page_pool_max_size, '268435456']
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    volumes:
+      - database:/home/spacetime/data
+    ports:
+      - '127.0.0.1:13300:3000'
+    networks: [default, proxy]
+    security_opt: [no-new-privileges:true]
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`)
+      traefik.http.routers.tabula-db.entrypoints: websecure
+      traefik.http.routers.tabula-db.tls.certresolver: letsencrypt
+      traefik.http.services.tabula-db.loadbalancer.server.port: '3000'
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  publish:
+    image: ${TABULA_MODULE_IMAGE:?Use an immutable release digest}
+    profiles: [release]
+    environment:
+      STDB_SERVER: http://database:3000
+      STDB_DATABASE: tabula
+      OIDC_ISSUER: ${OIDC_ISSUER:?}
+      OIDC_AUDIENCE: tabula
+    volumes:
+      - publisher:/home/spacetime/.config/spacetime
+    mem_limit: 256m
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+  web:
+    image: ${TABULA_WEB_IMAGE:?Use an immutable release digest}
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    read_only: true
+    tmpfs:
+      - /tmp/tabula:uid=101,gid=101,mode=0700,size=16m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      VITE_OIDC_ISSUER: ${OIDC_ISSUER:?}
+      VITE_OIDC_CLIENT_ID: tabula
+      VITE_STDB_URI: wss://${TABULA_DB_HOST:?}
+      VITE_STDB_DATABASE: tabula
+      VITE_API_BASE_URL: https://${TABULA_DB_HOST:?}/v1/database/tabula/route/api/v3
+    networks: [default, proxy]
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.tabula.rule: Host(`${TABULA_HOST:?}`)
+      traefik.http.routers.tabula.entrypoints: websecure
+      traefik.http.routers.tabula.tls.certresolver: letsencrypt
+      traefik.http.services.tabula.loadbalancer.server.port: '8080'
+    logging: *logging
+volumes:
+  database:
+  publisher:
+networks:
+  proxy:
+    external: true
+    name: dokploy-network

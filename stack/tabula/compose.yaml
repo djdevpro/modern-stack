@@ -3,7 +3,7 @@ services:
   database:
     image: ${TABULA_MODULE_IMAGE:?Use an immutable release digest}
     entrypoint: [spacetime]
-    command: [start, --data-dir, /home/spacetime/data, --non-interactive, --page_pool_max_size, '268435456']
+    command: [start, --data-dir, /home/spacetime/data, --jwt-priv-key-path, /home/spacetime/data/identity/id_ecdsa, --jwt-pub-key-path, /home/spacetime/data/identity/id_ecdsa.pub, --non-interactive, --page_pool_max_size, '268435456']
     restart: unless-stopped
     mem_limit: 768m
     cpus: 1.0
@@ -16,7 +16,7 @@ services:
     labels:
       traefik.enable: 'true'
       traefik.docker.network: dokploy-network
-      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`) && (Path(`/v1/ping`, `/v1/identity/websocket-token`, `/v1/database/tabula/subscribe`) || PathPrefix(`/v1/database/tabula/call/`, `/v1/database/tabula/procedure/`, `/v1/database/tabula/route/`))
+      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`) && (Path(`/v1/ping`) || Path(`/v1/identity/websocket-token`) || Path(`/v1/database/tabula/subscribe`) || PathPrefix(`/v1/database/tabula/call/`) || PathPrefix(`/v1/database/tabula/procedure/`) || PathPrefix(`/v1/database/tabula/route/`))
       traefik.http.routers.tabula-db.entrypoints: websecure
       traefik.http.routers.tabula-db.tls.certresolver: letsencrypt
       traefik.http.services.tabula-db.loadbalancer.server.port: '3000'

@@ -1,7 +1,7 @@
 {
-  "sha": "211304b84c9585d8d9c3928071bf1a5ae9248758",
+  "sha": "8665be04c7e021209ff3279e2c6ac99125212e7e",
   "resultat": "succes",
   "message": "4 fichier(s) de stack/ déployé(s)",
-  "details": "stack/scripts/deploie-prod.sh\nstack/tabula/.env.example\nstack/tabula/compose.yaml\nstack/tabula/deploy.sh",
-  "date": "2026-11-07T23:43:04Z"
+  "details": "stack/tabula/deploy.sh\nstack/tabula/tabula-update.service\nstack/tabula/tabula-update.timer\nstack/tabula/update.py",
+  "date": "2026-11-07T23:48:46Z"
 }

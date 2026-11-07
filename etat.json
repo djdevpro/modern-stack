@@ -1,7 +1,7 @@
 {
-  "sha": "f1cc2e78160ef6f75b6e5e8aef2e74475487c63c",
+  "sha": "211304b84c9585d8d9c3928071bf1a5ae9248758",
   "resultat": "succes",
-  "message": "1 fichier(s) de stack/ déployé(s)",
-  "details": "stack/compose.prod.yaml",
-  "date": "2026-11-07T15:15:55Z"
+  "message": "4 fichier(s) de stack/ déployé(s)",
+  "details": "stack/scripts/deploie-prod.sh\nstack/tabula/.env.example\nstack/tabula/compose.yaml\nstack/tabula/deploy.sh",
+  "date": "2026-11-07T23:43:04Z"
 }

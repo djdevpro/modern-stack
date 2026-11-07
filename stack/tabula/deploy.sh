@@ -2,8 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
-exec 9>/run/lock/tabula-deploy.lock
-flock -n 9 || exit 0
+if [ "${TABULA_LOCK_HELD:-0}" != 1 ]; then
+  exec 9>/run/lock/tabula-deploy.lock
+  flock -n 9 || exit 0
+fi
 compose() { docker compose --env-file /opt/tabula/.env -f compose.yaml "$@"; }
 compose config --quiet
 compose pull database web publish
@@ -18,6 +20,7 @@ if [ -n "$database_id" ]; then
   tar -tzf "$backup.partial" >/dev/null
   mv "$backup.partial" "$backup"
   cp /opt/tabula/.env "$backup.env"
+  if [ -f /opt/tabula/.env.previous ]; then cp /opt/tabula/.env.previous "$backup.previous.env"; fi
 fi
 compose up -d database
 ready=false
@@ -32,6 +35,11 @@ for _attempt in $(seq 1 60); do
   web_id=$(compose ps -q web)
   if [ -n "$web_id" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$web_id")" = healthy ]; then
     trap - EXIT
+    if [ -f tabula-update.service ]; then
+      install -m 644 tabula-update.service tabula-update.timer /etc/systemd/system/
+      systemctl daemon-reload
+      systemctl enable --now tabula-update.timer
+    fi
     echo 'Tabula deployment healthy'
     exit 0
   fi

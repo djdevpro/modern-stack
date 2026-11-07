@@ -16,7 +16,7 @@ services:
     labels:
       traefik.enable: 'true'
       traefik.docker.network: dokploy-network
-      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`)
+      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`) && (Path(`/v1/ping`, `/v1/identity/websocket-token`, `/v1/database/tabula/subscribe`) || PathPrefix(`/v1/database/tabula/call/`, `/v1/database/tabula/procedure/`, `/v1/database/tabula/route/`))
       traefik.http.routers.tabula-db.entrypoints: websecure
       traefik.http.routers.tabula-db.tls.certresolver: letsencrypt
       traefik.http.services.tabula-db.loadbalancer.server.port: '3000'

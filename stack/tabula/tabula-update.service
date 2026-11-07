@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy validated Tabula releases after their notification grace period
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/stack/tabula/update.py
+TimeoutStartSec=15min
+UMask=0077

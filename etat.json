@@ -1,7 +1,7 @@
 {
-  "sha": "8665be04c7e021209ff3279e2c6ac99125212e7e",
-  "resultat": "succes",
-  "message": "4 fichier(s) de stack/ déployé(s)",
-  "details": "stack/tabula/deploy.sh\nstack/tabula/tabula-update.service\nstack/tabula/tabula-update.timer\nstack/tabula/update.py",
-  "date": "2026-11-07T23:48:46Z"
+  "sha": "cc2276ecf5a380d73b0171c7bfd9e307c46c39d3",
+  "resultat": "echec",
+  "message": "deploie-prod.sh a échoué",
+  "details": " Container tout-en-un-grafana-1 Running \n Container tout-en-un-keycloak-1 Running \n Container tout-en-un-keycloak-db-1 Running \n Container tout-en-un-voxel-1 Running \n Container tout-en-un-stalwart-1 Running \n Container tout-en-un-prometheus-1 Running \n Container tout-en-un-keycloak-db-1 Waiting \n Container tout-en-un-keycloak-db-1 Healthy \n Image ghcr.io/djdevpro/tabula-module@sha256:3fad8469f252cdb65eaabc8f426fa08db71c00d8c18d3b15ba4fc25ce6a43bdb Pulling \n Image ghcr.io/djdevpro/tabula-web@sha256:98f7d67fd2d265bb4cbe8df6d520554344e72b818738fdc96df8534aaed6046c Pulling \n Image ghcr.io/djdevpro/tabula-module@sha256:3fad8469f252cdb65eaabc8f426fa08db71c00d8c18d3b15ba4fc25ce6a43bdb Pulled \n Image ghcr.io/djdevpro/tabula-web@sha256:98f7d67fd2d265bb4cbe8df6d520554344e72b818738fdc96df8534aaed6046c Pulled \n Container tabula-database-1 Stopping \n Container tabula-database-1 Stopped \n Container tabula-database-run-4594ceb2558b Creating \n Container tabula-database-run-4594ceb2558b Created \n Container tabula-database-1 Recreate \n Container tabula-database-1 Recreated \n Container tabula-database-1 Starting \n Container tabula-database-1 Started \ncurl: (52) Empty reply from server\n Container tabula-publish-run-91173381dc2e Creating \n Container tabula-publish-run-91173381dc2e Created \n(JS) Skipping build. Instead we are publishing /opt/tabula/bundle.js\nEnvironment OIDC_AUDIENCE (shell)\nEnvironment OIDC_ISSUER (shell)\nYou are about to publish to a non-local server: database\nSkipping confirmation due to --yes\nUploading to http://database:3000 => http://database:3000\nChecking for breaking changes...\nError: Pre-publish check failed with status 401 Unauthorized: Invalid token: InvalidSignature",
+  "date": "2026-11-07T23:52:26Z"
 }

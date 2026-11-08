@@ -15,6 +15,7 @@ A self-hosted platform on a single small server: mail, single sign-on, monitorin
 | Folder | Content |
 |---|---|
 | `terraform/` | Server, firewall, reverse DNS |
+| `terraform/tabula/` | Tabula identity, initial account and Stalwart SMTP (`python setup.py apply tabula`) |
 | `stack/` | Core services (Docker Compose) and helper scripts |
 | `deploiement/` | Pull-based deployment agent |
 | `.github/` | CI, deployment status, nightly CVE scan, Dependabot |

@@ -59,3 +59,5 @@ CLAUDE.local.md
 Thumbs.db
 .vscode/
 .idea/
+
+*.tfvars.json

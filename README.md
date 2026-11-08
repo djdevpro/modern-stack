@@ -1,9 +1,11 @@
-# modern-stack
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/ms-dark.svg">
+    <img src="assets/ms.svg" alt="ms" width="220">
+  </picture>
+</p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/ms-dark.svg">
-  <img src="assets/ms.svg" alt="ms" width="220">
-</picture>
+<h1 align="center">modern-stack</h1>
 
 A self-hosted platform on one server: mail, single sign-on, monitoring and applications. Terraform manages infrastructure and access policies; GitHub validates changes; the server pulls approved releases.
 

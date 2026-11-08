@@ -27,6 +27,8 @@ variable "admin_user" {
   default     = "admin"
 }
 
+# Compatibility with existing private tfvars; intentionally grants no access.
+# tflint-ignore: terraform_unused_declarations
 variable "admin_ips" {
   description = "Deprecated compatibility input; public SSH and Dokploy are always blocked."
   type        = list(string)

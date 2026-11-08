@@ -27,8 +27,10 @@ variable "admin_user" {
   default     = "admin"
 }
 
+# Compatibility with existing private tfvars; intentionally grants no access.
+# tflint-ignore: terraform_unused_declarations
 variable "admin_ips" {
-  description = "IP(s) autorisees sur le panneau Dokploy public, en CIDR. SSH reste accessible uniquement via NetBird."
+  description = "Deprecated compatibility input; public SSH and Dokploy are always blocked."
   type        = list(string)
   default     = []
 }

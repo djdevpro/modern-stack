@@ -7,28 +7,22 @@ locals {
   # Règles entrantes. Tout ce qui n'est pas listé est bloqué.
   # (Le pare-feu Hetzner est externe : Docker ne peut pas le contourner, contrairement à ufw.)
   # Les ports du mail correspondent à ce que publie stack/compose.yaml.
-  firewall_rules = concat(
-    length(var.admin_ips) > 0 ? [
-      # SSH is reachable only through NetBird; no public TCP 22 rule.
-      # Panneau Dokploy : uniquement depuis tes IP (sinon passe par NetBird)
-      { description = "Dokploy UI", protocol = "tcp", port = "3000", source_ips = var.admin_ips },
-    ] : [],
-    [
-      # NetBird (WireGuard) en connexion directe (sinon il passe par ses relais, ça marche quand même)
-      { description = "NetBird", protocol = "udp", port = "51820", source_ips = local.any },
+  # SSH and Dokploy administration are private, through NetBird only.
+  firewall_rules = [
+    # NetBird (WireGuard) en connexion directe (sinon il passe par ses relais, ça marche quand même)
+    { description = "NetBird", protocol = "udp", port = "51820", source_ips = local.any },
 
-      # Applis (Traefik de Dokploy, certificats Let's Encrypt)
-      { description = "HTTP", protocol = "tcp", port = "80", source_ips = local.any },
-      { description = "HTTPS", protocol = "tcp", port = "443", source_ips = local.any },
-      { description = "HTTP/3", protocol = "udp", port = "443", source_ips = local.any },
+    # Applis (Traefik de Dokploy, certificats Let's Encrypt)
+    { description = "HTTP", protocol = "tcp", port = "80", source_ips = local.any },
+    { description = "HTTPS", protocol = "tcp", port = "443", source_ips = local.any },
+    { description = "HTTP/3", protocol = "udp", port = "443", source_ips = local.any },
 
-      # Mail (Stalwart)
-      { description = "SMTP", protocol = "tcp", port = "25", source_ips = local.any },
-      { description = "SMTPS", protocol = "tcp", port = "465", source_ips = local.any },
-      { description = "Submission", protocol = "tcp", port = "587", source_ips = local.any },
-      { description = "IMAPS", protocol = "tcp", port = "993", source_ips = local.any },
-    ]
-  )
+    # Mail (Stalwart)
+    { description = "SMTP", protocol = "tcp", port = "25", source_ips = local.any },
+    { description = "SMTPS", protocol = "tcp", port = "465", source_ips = local.any },
+    { description = "Submission", protocol = "tcp", port = "587", source_ips = local.any },
+    { description = "IMAPS", protocol = "tcp", port = "993", source_ips = local.any },
+  ]
 }
 
 resource "hcloud_ssh_key" "admin" {

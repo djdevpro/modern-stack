@@ -132,7 +132,7 @@ def reconcile(config):
         'redirectUris': [origin + '/auth/callback'], 'webOrigins': [origin],
         'attributes': {'pkce.code.challenge.method': 'S256',
                        'post.logout.redirect.uris': origin + '/login'},
-        'defaultClientScopes': ['profile', 'email'],
+        'defaultClientScopes': ['basic', 'profile', 'email'],
     }
     clients = kc.request(realm + '/clients?clientId=tabula')
     if clients:
@@ -142,6 +142,10 @@ def reconcile(config):
         kc.request(realm + '/clients', client_settings, 'POST')
         client_id = kc.request(realm + '/clients?clientId=tabula')[0]['id']
     client_path = realm + '/clients/' + client_id
+    # Keycloak 26 adds the required JWT subject through the basic client scope.
+    scopes = {s['name']: s['id'] for s in kc.request(realm + '/client-scopes')}
+    for name in client_settings['defaultClientScopes']:
+        kc.request(client_path + '/default-client-scopes/' + scopes[name], method='PUT')
     mappers = [
         {'name': 'tabula-audience', 'protocol': 'openid-connect', 'protocolMapper': 'oidc-audience-mapper',
          'config': {'included.client.audience': 'tabula', 'access.token.claim': 'true', 'id.token.claim': 'false'}},
@@ -193,6 +197,7 @@ def reconcile(config):
     verified_client = kc.request(client_path)
     assert verified_client['attributes']['pkce.code.challenge.method'] == 'S256'
     assert verified_client['redirectUris'] == [origin + '/auth/callback']
+    assert 'basic' in {s['name'] for s in kc.request(client_path + '/default-client-scopes')}
     print('Dedicated realm, SMTP, PKCE client, roles and administrator reconciled; existing password preserved')
 
     env_path = ROOT / '.env'

@@ -1,7 +1,7 @@
 {
   "sha": "4d96aa2b28f2a173994b57041293b340c48e96c6",
-  "resultat": "echec",
-  "message": "deploie-prod.sh a échoué",
-  "details": " bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 2B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 3B\n bfbb92066899 Extracting 4B\n bfbb92066899 Extracting 4B\n bfbb92066899 Pull complete 0B\n 985cf44cdf3e Pull complete 0B\n ad73a606736d Pull complete 0B\n fbb43637daa8 Pull complete 0B\n b7387b64b581 Pull complete 0B\n 8048d02c93ea Pull complete 0B\n Image ghcr.io/djdevpro/tabula-manager@sha256:2f211e551f8a67727f0eafb353a9c4ea09c5c3f1c6cc608a6f09131335477e8d Pulled \n Container tabula-web-1 Stopping \n Container tabula-web-1 Stopped \n Container tabula-database-1 Stopping \n Container tabula-database-1 Stopped \n Container tabula-database-run-c4eac9d0dff1 Creating \n Container tabula-database-run-c4eac9d0dff1 Created \n Container tabula-publish-run-890ce1757379 Creating \n Container tabula-publish-run-890ce1757379 Created \ntar: ./cli.toml.before-key-recovery: Cannot open: Permission denied\ntar: Exiting with failure status due to previous errors\n\n Container tabula-database-1 Starting \n Container tabula-database-1 Started ",
-  "date": "2026-11-08T16:18:29Z"
+  "resultat": "succes",
+  "message": "Déploiement terminé après reprise contrôlée de Tabula",
+  "details": "Permissions de la sauvegarde historique corrigées. Script Tabula versionné exécuté avec succès. Santé de la stack et des services natifs vérifiée ; modèle et stockage validés.",
+  "date": "2026-11-08T16:27:41Z"
 }

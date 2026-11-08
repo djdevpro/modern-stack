@@ -41,7 +41,7 @@ jobs:
         run: .github/scripts/outil terraform fmt -check -diff -recursive terraform
       - name: Validation (sans état distant ni secret)
         run: |
-          for dossier in terraform terraform/drive; do
+          for dossier in terraform terraform/drive terraform/tabula; do
             .github/scripts/outil terraform -chdir="$dossier" init -backend=false -input=false -lockfile=readonly -no-color
             .github/scripts/outil terraform -chdir="$dossier" validate -no-color
           done
@@ -70,7 +70,7 @@ jobs:
       - name: Python et Node (syntaxe)
         run: |
           python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \
-            setup.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
+            setup.py terraform/tabula/configure.py terraform/tabula/mail.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
           node --check terraform/drive/keycloak/configure.mjs
       - name: actionlint
         run: .github/scripts/outil actionlint -color

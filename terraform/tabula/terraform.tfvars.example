@@ -1,0 +1,12 @@
+ssh_host   = "server.example.com"
+ssh_host_key = "ssh-ed25519 REPLACE_WITH_TRUSTED_SERVER_PUBLIC_KEY"
+admin_user = "operator"
+configuration = {
+  keycloak_url = "https://iam.example.com"
+  frontend_url = "https://tabula.app.example.com"
+  backend_url  = "https://tabula-db.app.example.com"
+  admin_email  = "owner@example.com"
+  smtp_host    = "mail.example.com"
+  smtp_user    = "notifications@example.com"
+  smtp_from    = "notifications@example.com"
+}

@@ -5,6 +5,7 @@ provider "registry.terraform.io/aminueza/minio" {
   version     = "3.45.1"
   constraints = "3.45.1"
   hashes = [
+    "h1:C2Ixb+RsAppsn/kJhDHo7kBO2umDPTTMJYi4cLAfJQI=",
     "h1:z8DtybZW6MBiGFFVZL/k+5h94eL826K2ywdwsaw195Q=",
     "zh:1a08a24e732c20ad3e6c62e4cc2f94ad9c0bb6bf066d988db12edc21118e05ae",
     "zh:1cd965b960fdce9d27e3a1cd02c53124aacd49fdb62852189a0b2687eef2edc7",

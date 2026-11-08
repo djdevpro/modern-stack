@@ -7,13 +7,13 @@
 
 <h1 align="center">modern-stack</h1>
 
-<p align="center">Your own cloud, with private server access and controlled delivery.</p>
+<p align="center">Votre cloud, des accès privés et des mises en production maîtrisées.</p>
 
-**modern-stack** brings email, file storage, collaborative data and identity together on one server. Secure access, supervision and the security-update cycle are built into its architecture.
+**modern-stack** réunit messagerie, stockage de fichiers, données collaboratives et gestion des identités sur un seul serveur. Accès sécurisés, supervision et mises à jour de sécurité font partie de son architecture.
 
-## Private access comes first
+## Un accès privé pour administrer le serveur
 
-Server administration starts with **NetBird**: an authorized device enters an encrypted private tunnel before reaching SSH or Dokploy.
+L’administration du serveur commence par **NetBird** : un poste autorisé rejoint un tunnel privé chiffré avant d’accéder à SSH ou Dokploy.
 
 ```mermaid
 graph LR
@@ -30,11 +30,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-The **Hetzner firewall blocks direct public SSH and Dokploy access** on IPv4 and IPv6. SSH keys and the Dokploy login still authenticate the administrator. Public applications and mail remain reachable through their intended entry points.
+Le **pare-feu Hetzner bloque l’accès public direct à SSH et Dokploy**, en IPv4 comme en IPv6. L’administrateur doit toujours s’authentifier par clé SSH ou sur la page de connexion Dokploy. Les applications publiques et la messagerie restent accessibles par leurs points d’entrée prévus.
 
-## Connected services, integrated identity
+## Services et gestion des identités
 
-**Traefik** provides the HTTPS entry point. **Keycloak** handles OIDC authentication and application roles for Drive and Tabula, with PKCE and controlled redirects.
+**Traefik** fournit le point d’entrée HTTPS. **Keycloak** gère l’authentification OIDC et les rôles applicatifs de Drive et Tabula, avec PKCE et des redirections contrôlées.
 
 ```mermaid
 graph LR
@@ -52,11 +52,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-[Voxel](https://github.com/djdevpro/voxel) provides webmail over Stalwart; [Drive](https://github.com/djdevpro/s3drive) keeps files in private S3 storage; Tabula uses SpacetimeDB for collaborative data in real time. Keycloak persists identity in PostgreSQL. Each service keeps its own data layer.
+[Voxel](https://github.com/djdevpro/voxel) fournit l’interface de messagerie de Stalwart ; [Drive](https://github.com/djdevpro/s3drive) conserve les fichiers dans un stockage S3 privé ; Tabula s’appuie sur SpacetimeDB pour les données collaboratives en temps réel. Keycloak stocke les identités dans PostgreSQL. Chaque service dispose de son propre stockage.
 
-## Supervision with Prometheus and Grafana
+## Supervision avec Prometheus et Grafana
 
-**Grafana** provides private dashboards backed by **Prometheus**. Container health checks and deployment reports add a second view: whether a release actually reached a healthy running state.
+**Grafana** propose des tableaux de bord privés alimentés par **Prometheus**. Les contrôles de santé des conteneurs et les rapports de déploiement permettent aussi de suivre l’état d’une version après sa mise en service.
 
 ```mermaid
 graph LR
@@ -72,11 +72,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Dashboards and their data source are versioned alongside the platform. GitHub exposes deployment status and opens an issue when a deployment fails. [Monitoring scope and configured targets](docs/operations.md#supervision) distinguish available dashboards from metrics actually collected.
+Les tableaux de bord et leur source de données sont versionnés avec la plateforme. GitHub affiche l’état des déploiements et ouvre une issue en cas d’échec. Le [périmètre de supervision](docs/operations.md#supervision) précise quelles métriques sont réellement collectées.
 
-## From a CVE to a verified redeployment
+## D’une CVE au redéploiement vérifié
 
-**Trivy** scans pinned images every night. Security findings are reported; rebuilt images and **Dependabot** updates enter the same review and validation path.
+**Trivy** analyse chaque nuit les images épinglées. Les vulnérabilités sont signalées ; les images reconstruites et les mises à jour proposées par **Dependabot** suivent le même parcours de revue et de validation.
 
 ```mermaid
 graph LR
@@ -92,16 +92,16 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-CI checks infrastructure, scripts, workflows and image security. Eligible updates can merge automatically after validation; other changes require review. The server **pulls** approved changes, refuses conflicting manual edits, redeploys and reports health. GitHub runners need no SSH access to production.
+Les contrôles d’intégration continue (CI) vérifient l’infrastructure, les scripts, les workflows et la sécurité des images. Les mises à jour éligibles peuvent être fusionnées automatiquement après validation ; les autres nécessitent une revue. Le serveur **récupère lui-même** les changements approuvés, refuse d’écraser des modifications manuelles conflictuelles, redéploie et remonte l’état de santé. GitHub Actions n’a besoin d’aucun accès SSH à la production.
 
-Tabula adds a staged release policy: builds, container checks and scans, a notification, **at least four hours to intervene**, then promotion and a backup before deployment.
+Tabula ajoute une publication par étapes : compilation, contrôles des conteneurs et analyses de sécurité, notification, **au moins quatre heures pour intervenir**, puis promotion de la version et sauvegarde avant déploiement.
 
-## Built to operate
+## Pensé pour l’exploitation
 
-**Terraform** defines infrastructure, private access and application configuration. **Docker Compose** keeps services reproducible, with persistent data, pinned images and explicit resource limits where configured. Secrets are supplied outside Git; state and backups remain private.
+**Terraform** définit l’infrastructure, les accès privés et la configuration des applications. **Docker Compose** rend les déploiements reproductibles : données persistantes, images épinglées et limites de ressources explicites lorsqu’elles sont configurées. Les secrets sont fournis hors de Git ; les états Terraform et les sauvegardes restent privés.
 
-- [Terraform guide](docs/terraform.md) — commands, provisioning diagrams and prerequisites.
-- [Operations and security](docs/operations.md) — network boundaries, monitoring coverage and the CVE/redeployment cycle.
-- [Private administration](terraform/PRIVATE-ADMIN.md) — access policy and recovery.
+- [Guide Terraform](docs/terraform.md) — commandes, schémas de provisionnement et prérequis.
+- [Exploitation et sécurité](docs/operations.md) — frontières réseau, couverture de supervision et cycle CVE/redéploiement.
+- [Administration privée](terraform/PRIVATE-ADMIN.md) — politique d’accès et rétablissement de l’accès.
 
-The diagrams are editable Mermaid sources. Keep architecture and implementation changes together in the same PR.
+Les schémas sont des sources Mermaid modifiables. Mettez-les à jour dans la même PR que les changements d’architecture.

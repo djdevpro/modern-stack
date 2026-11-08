@@ -44,5 +44,5 @@ output "realm" {
 }
 
 output "initial_password_location" {
-  value = "Server: /opt/tabula/bootstrap.json (root only; never reset on subsequent applies)"
+  value = "Server: ~/acces.txt for the SSH administrator; root copy in /opt/tabula/bootstrap.json. Initial password only, never reset on subsequent applies."
 }

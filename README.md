@@ -7,13 +7,13 @@
 
 <h1 align="center">modern-stack</h1>
 
-<p align="center">Votre cloud, des accès privés et des mises en production maîtrisées.</p>
+<p align="center">Messagerie, fichiers et collaboration sur un serveur géré avec Terraform.</p>
 
-**modern-stack** réunit messagerie, stockage de fichiers, données collaboratives et gestion des identités sur un seul serveur. Accès sécurisés, supervision et mises à jour de sécurité font partie de son architecture.
+**modern-stack** réunit une messagerie, un Drive et Tabula sur un seul serveur. L'accès SSH passe par NetBird, Keycloak gère les identités et les mises à jour passent par la CI avant leur déploiement.
 
 ## Un accès privé pour administrer le serveur
 
-L’administration du serveur commence par **NetBird** : un poste autorisé rejoint un tunnel privé chiffré avant d’accéder à SSH ou Dokploy.
+Pour accéder à SSH ou Dokploy, le poste de l'administrateur doit rejoindre le tunnel privé chiffré **NetBird**.
 
 ```mermaid
 graph LR
@@ -30,11 +30,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Le **pare-feu Hetzner bloque l’accès public direct à SSH et Dokploy**, en IPv4 comme en IPv6. L’administrateur doit toujours s’authentifier par clé SSH ou sur la page de connexion Dokploy. Les applications publiques et la messagerie restent accessibles par leurs points d’entrée prévus.
+Le **pare-feu Hetzner bloque l'accès public direct à SSH et Dokploy**, en IPv4 et IPv6. L'administrateur se connecte ensuite avec sa clé SSH ou son compte Dokploy. Les applications publiques et la messagerie restent accessibles depuis Internet.
 
 ## Services et gestion des identités
 
-**Traefik** fournit le point d’entrée HTTPS. **Keycloak** gère l’authentification OIDC et les rôles applicatifs de Drive et Tabula, avec PKCE et des redirections contrôlées.
+**Traefik** fournit le point d'entrée HTTPS. **Keycloak** gère l'authentification OIDC et les rôles applicatifs de Drive et Tabula, avec PKCE et des redirections contrôlées.
 
 ```mermaid
 graph LR
@@ -52,11 +52,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-[Voxel](https://github.com/djdevpro/voxel) fournit l’interface de messagerie de Stalwart ; [Drive](https://github.com/djdevpro/s3drive) conserve les fichiers dans un stockage S3 privé ; Tabula s’appuie sur SpacetimeDB pour les données collaboratives en temps réel. Keycloak stocke les identités dans PostgreSQL. Chaque service dispose de son propre stockage.
+[Voxel](https://github.com/djdevpro/voxel) fournit l'interface de messagerie de Stalwart ; [Drive](https://github.com/djdevpro/s3drive) conserve les fichiers dans un stockage S3 privé ; Tabula s'appuie sur SpacetimeDB pour les données collaboratives en temps réel. Keycloak stocke les identités dans PostgreSQL.
 
 ## Supervision avec Prometheus et Grafana
 
-**Grafana** propose des tableaux de bord privés alimentés par **Prometheus**. Les contrôles de santé des conteneurs et les rapports de déploiement permettent aussi de suivre l’état d’une version après sa mise en service.
+**Grafana** affiche les métriques collectées par **Prometheus** dans des tableaux de bord accessibles via NetBird. Les contrôles de santé des conteneurs servent aussi à vérifier l'état des services après un déploiement.
 
 ```mermaid
 graph LR
@@ -72,11 +72,11 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Les tableaux de bord et leur source de données sont versionnés avec la plateforme. GitHub affiche l’état des déploiements et ouvre une issue en cas d’échec. Le [périmètre de supervision](docs/operations.md#supervision) précise quelles métriques sont réellement collectées.
+Les tableaux de bord et leur source de données sont versionnés. GitHub affiche l'état des déploiements et ouvre une issue en cas d'échec. Dans la [configuration actuelle](docs/operations.md#supervision), Prometheus ne collecte pour l'instant que ses propres métriques.
 
-## D’une CVE au redéploiement vérifié
+## D'une CVE au redéploiement vérifié
 
-**Trivy** analyse chaque nuit les images épinglées. Les vulnérabilités sont signalées ; les images reconstruites et les mises à jour proposées par **Dependabot** suivent le même parcours de revue et de validation.
+**Trivy** analyse chaque nuit les images épinglées. Les vulnérabilités sont signalées ; les images reconstruites et les mises à jour proposées par **Dependabot** passent par une revue et les contrôles de la CI.
 
 ```mermaid
 graph LR
@@ -92,16 +92,18 @@ graph LR
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Les contrôles d’intégration continue (CI) vérifient l’infrastructure, les scripts, les workflows et la sécurité des images. Les mises à jour éligibles peuvent être fusionnées automatiquement après validation ; les autres nécessitent une revue. Le serveur **récupère lui-même** les changements approuvés, refuse d’écraser des modifications manuelles conflictuelles, redéploie et remonte l’état de santé. GitHub Actions n’a besoin d’aucun accès SSH à la production.
+La CI vérifie l'infrastructure, les scripts, les workflows et la sécurité des images. Les mises à jour prévues par la politique de fusion automatique peuvent être intégrées après validation. Les autres demandent une revue.
 
-Tabula ajoute une publication par étapes : compilation, contrôles des conteneurs et analyses de sécurité, notification, **au moins quatre heures pour intervenir**, puis promotion de la version et sauvegarde avant déploiement.
+Le serveur **récupère lui-même les changements approuvés**. Il refuse d'écraser des modifications manuelles conflictuelles, redéploie les services concernés et remonte leur état de santé. GitHub Actions n'a besoin d'aucun accès SSH à la production.
 
-## Pensé pour l’exploitation
+Pour Tabula, les images sont construites, testées et analysées avant l'envoi d'une notification. La promotion attend alors **au moins quatre heures**, pour laisser le temps d'intervenir. Le serveur sauvegarde les données avant le déploiement.
 
-**Terraform** définit l’infrastructure, les accès privés et la configuration des applications. **Docker Compose** rend les déploiements reproductibles : données persistantes, images épinglées et limites de ressources explicites lorsqu’elles sont configurées. Les secrets sont fournis hors de Git ; les états Terraform et les sauvegardes restent privés.
+## Configuration et exploitation
 
-- [Guide Terraform](docs/terraform.md) — commandes, schémas de provisionnement et prérequis.
-- [Exploitation et sécurité](docs/operations.md) — frontières réseau, couverture de supervision et cycle CVE/redéploiement.
-- [Administration privée](terraform/PRIVATE-ADMIN.md) — politique d’accès et rétablissement de l’accès.
+**Terraform** définit l'infrastructure, les accès privés et la configuration des applications. **Docker Compose** décrit les services, leurs données persistantes, leurs images épinglées et les limites de ressources configurées. Les secrets sont fournis hors de Git ; les états Terraform et les sauvegardes restent privés.
 
-Les schémas sont des sources Mermaid modifiables. Mettez-les à jour dans la même PR que les changements d’architecture.
+- Le [guide Terraform](docs/terraform.md) détaille les commandes, les schémas de provisionnement et les prérequis.
+- Le guide [Exploitation et sécurité](docs/operations.md) décrit les accès réseau, la couverture de supervision et le cycle CVE/redéploiement.
+- Le guide d'[administration privée](terraform/PRIVATE-ADMIN.md) explique comment se connecter et rétablir un accès.
+
+Les schémas Mermaid se modifient directement dans le README. Ils doivent évoluer dans la même PR que l'architecture.

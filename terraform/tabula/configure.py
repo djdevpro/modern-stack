@@ -5,6 +5,7 @@ No secret is logged or placed in Terraform state. Existing user passwords are pr
 import fcntl
 import json
 import os
+import pwd
 from pathlib import Path
 import secrets
 import smtplib
@@ -56,6 +57,34 @@ class Keycloak:
         except urllib.error.HTTPError as error:
             # Error response bodies may contain sensitive request data.
             raise RuntimeError(f'Keycloak {method or "GET"} {path.split("?")[0]}: HTTP {error.code}') from None
+
+
+def update_access_file(config):
+    """Maintain only our marked section; preserve other applications' credentials."""
+    account = pwd.getpwnam(os.environ['SUDO_USER'])
+    path = Path(account.pw_dir) / 'acces.txt'
+    if path.is_symlink():
+        raise RuntimeError('Refusing a symlink for acces.txt')
+    bootstrap = json.loads((ROOT / 'bootstrap.json').read_text())
+    if bootstrap['username'] != config['admin_email']:
+        raise RuntimeError('Bootstrap account differs from the configured administrator')
+    start, end = '# BEGIN TABULA (Terraform)', '# END TABULA (Terraform)'
+    section = '\n'.join([start, 'Tabula : ' + config['frontend_url'],
+        'Identifiant : ' + bootstrap['username'],
+        'Mot de passe initial : ' + bootstrap['password'],
+        'Si vous avez change ce mot de passe, utilisez votre nouveau mot de passe.', end])
+    original = path.read_text() if path.exists() else ''
+    if start in original or end in original:
+        if original.count(start) != 1 or original.count(end) != 1 or original.index(start) > original.index(end):
+            raise RuntimeError('Malformed Tabula section in acces.txt; refusing to alter other credentials')
+        updated = original[:original.index(start)] + section + original[original.index(end) + len(end):]
+    else:
+        updated = original + ('\n\n' if original else '') + section + '\n'
+    if updated != original:
+        private_write(path, updated)
+    os.chown(path, account.pw_uid, account.pw_gid)
+    path.chmod(0o600)
+    print('Tabula initial access synchronized in the SSH administrator acces.txt; other entries preserved')
 
 
 def reconcile(config):
@@ -182,6 +211,7 @@ def reconcile(config):
                        env={**os.environ, 'TABULA_LOCK_HELD': '1', 'COMPOSE_ANSI': 'never', 'COMPOSE_PROGRESS': 'plain'})
         (ROOT / 'identity-deploy-pending').unlink()
     print('Tabula runtime configuration matches its dedicated realm')
+    update_access_file(config)
 
 
 if __name__ == '__main__':

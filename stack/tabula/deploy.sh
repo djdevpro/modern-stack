@@ -38,11 +38,7 @@ for _attempt in $(seq 1 60); do
   web_id=$(compose ps -q web)
   if [ -n "$web_id" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$web_id")" = healthy ]; then
     trap - EXIT
-    if [ -f tabula-update.service ]; then
-      install -m 644 tabula-update.service tabula-update.timer /etc/systemd/system/
-      systemctl daemon-reload
-      systemctl enable --now tabula-update.timer
-    fi
+    # Terraform owns the update timer and its policy; deployment must not reset them.
     echo 'Tabula deployment healthy'
     exit 0
   fi

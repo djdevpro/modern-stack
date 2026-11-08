@@ -1,7 +1,7 @@
 {
-  "sha": "b0f26fada4eb51aa0f1cb496c7bdab11de499d23",
+  "sha": "37a388769a42941880a3cd980bd186cd6f1358d4",
   "resultat": "succes",
-  "message": "2 fichier(s) de stack/ déployé(s)",
-  "details": "stack/tabula/compose.yaml\nstack/tabula/deploy.sh",
-  "date": "2026-11-07T23:58:59Z"
+  "message": "Rien à déployer : aucun fichier de stack/ modifié",
+  "details": "",
+  "date": "2026-11-08T00:20:42Z"
 }

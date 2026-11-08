@@ -28,7 +28,7 @@ variable "admin_user" {
 }
 
 variable "admin_ips" {
-  description = "IP(s) autorisees sur le panneau Dokploy public, en CIDR. SSH reste accessible uniquement via NetBird."
+  description = "Deprecated compatibility input; public SSH and Dokploy are always blocked."
   type        = list(string)
   default     = []
 }

@@ -4,7 +4,21 @@ Les trois piles sont indépendantes : `python setup.py plan <pile>` montre les c
 
 ## 1. Serveur et accès privés — infra
 
-[Schéma du serveur dans le README](../README.md#infrastructure) · [Accès publics et privés](../README.md#security)
+```mermaid
+graph LR
+    A["apply infra"]:::chamois --> B["Clé SSH et pare-feu"]:::beige
+    B --> C["Serveur Hetzner"]:::beige
+    C -->|création| D["Initialisation cloud-init"]:::beige
+    D --> E["NetBird, Docker, Dokploy"]:::blanc
+    C --> F["DNS inverse IPv4/IPv6"]:::blanc
+    B --> G["Filtre privé Traefik"]:::beige
+    G --> H["Administration via NetBird"]:::blanc
+    B --> H
+
+    classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
+    classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
+    classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
+```
 
 - **Ressources gérées :** serveur IPv4/IPv6, clé SSH, pare-feu et deux PTR. Sauvegardes et protection contre suppression/réinstallation dépendent de `backups` et `protected`.
 - **Au premier démarrage :** compte administrateur, SSH par clé, root et mot de passe interdits, mises à jour système, Fail2ban, swap et utilitaires. NetBird rejoint le réseau si sa clé est fournie ; l'installation de Dokploy est optionnelle.
@@ -16,7 +30,23 @@ Sources : [main.tf](../terraform/main.tf), [cloud-init](../terraform/cloud-init.
 
 ## 2. Stockage et ancien déploiement — drive
 
-[Schéma du Drive dans le README](../README.md#drive)
+```mermaid
+graph LR
+    A["apply drive"]:::chamois --> B["Lecture état infra"]:::beige
+    A --> C["Bucket privé et règles"]:::beige
+    B --> D["Client SSO Keycloak"]:::beige
+    C --> E["Configuration privée Drive"]:::beige
+    D --> E
+    B --> F["DNS Cloudflare A/AAAA"]:::beige
+    A --> G["Commit applicatif GitHub"]:::beige
+    E --> H["Build et lancement Docker"]:::blanc
+    F --> H
+    G --> H
+
+    classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
+    classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
+    classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
+```
 
 **Écart à corriger avant réutilisation :** le code de cette pile contacte encore l'IP publique en SSH et construit le Drive sur le serveur. Il n'est pas aligné avec l'administration privée par NetBird ni avec le déploiement actuel du service `drive` par image depuis `stack/`. Ce diagramme représente bien ce que le code ferait ; ne pas utiliser cet ancien chemin pour mettre à jour l'application avant sa migration.
 

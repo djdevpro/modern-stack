@@ -3,7 +3,7 @@ output "serveur" {
   value = {
     ipv4 = hcloud_server.this.ipv4_address
     ipv6 = hcloud_server.this.ipv6_address
-    ssh  = "ssh ${var.admin_user}@${var.server_name}.netbird.cloud   # via NetBird (ou @${hcloud_server.this.ipv4_address} si ton IP est dans admin_ips)"
+    ssh  = "ssh ${var.admin_user}@${var.server_name}.netbird.cloud   # NetBird only; public SSH is blocked"
   }
 }
 

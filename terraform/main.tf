@@ -9,7 +9,7 @@ locals {
   # Les ports du mail correspondent à ce que publie stack/compose.yaml.
   firewall_rules = concat(
     length(var.admin_ips) > 0 ? [
-      { description = "SSH admin", protocol = "tcp", port = "22", source_ips = var.admin_ips },
+      # SSH is reachable only through NetBird; no public TCP 22 rule.
       # Panneau Dokploy : uniquement depuis tes IP (sinon passe par NetBird)
       { description = "Dokploy UI", protocol = "tcp", port = "3000", source_ips = var.admin_ips },
     ] : [],

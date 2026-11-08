@@ -1,6 +1,12 @@
 ssh_host   = "server.example.com"
 ssh_host_key = "ssh-ed25519 REPLACE_WITH_TRUSTED_SERVER_PUBLIC_KEY"
 admin_user = "operator"
+update_policy = {
+  repository             = "example/tabula"
+  grace_hours            = 4
+  check_interval_minutes = 15
+  enabled                = true
+}
 configuration = {
   keycloak_url = "https://iam.example.com"
   frontend_url = "https://tabula.app.example.com"

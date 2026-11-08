@@ -70,7 +70,7 @@ jobs:
       - name: Python et Node (syntaxe)
         run: |
           python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \
-            setup.py terraform/tabula/configure.py terraform/tabula/mail.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
+            setup.py terraform/tabula/*.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
           node --check terraform/drive/keycloak/configure.mjs
       - name: actionlint
         run: .github/scripts/outil actionlint -color

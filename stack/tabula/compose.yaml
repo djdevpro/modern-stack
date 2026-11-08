@@ -16,7 +16,7 @@ services:
     labels:
       traefik.enable: 'true'
       traefik.docker.network: dokploy-network
-      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`) && (Path(`/v1/ping`) || Path(`/v1/identity/websocket-token`) || Path(`/v1/database/tabula/subscribe`) || PathPrefix(`/v1/database/tabula/call/`) || PathPrefix(`/v1/database/tabula/procedure/`) || PathPrefix(`/v1/database/tabula/route/`))
+      traefik.http.routers.tabula-db.rule: Host(`${TABULA_DB_HOST:?}`) && (Path(`/v1/ping`) || Path(`/v1/identity/websocket-token`) || PathRegexp(`^/v1/database/(${STDB_DATABASE:?}|tabula-native-bas[0-9a-hjkmnp-tv-z]{14})/(subscribe|call/[a-z_]+|procedure/[a-z_]+|route/api/v3/[a-z0-9/_-]+)$$`))
       traefik.http.routers.tabula-db.entrypoints: websecure
       traefik.http.routers.tabula-db.tls.certresolver: letsencrypt
       traefik.http.services.tabula-db.loadbalancer.server.port: '3000'
@@ -28,13 +28,64 @@ services:
     profiles: [release]
     environment:
       STDB_SERVER: http://database:3000
-      STDB_DATABASE: tabula
+      STDB_DATABASE: ${STDB_DATABASE:?}
       OIDC_ISSUER: ${OIDC_ISSUER:?}
       OIDC_AUDIENCE: tabula
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_EFFORT: ${AI_EFFORT:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     volumes:
       - publisher:/home/spacetime/.config/spacetime
     mem_limit: 256m
     security_opt: [no-new-privileges:true]
+    logging: *logging
+  manager:
+    image: ${TABULA_MANAGER_IMAGE:?Use an immutable release digest}
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700,size=256m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      TABULA_MANAGER_MODE: production
+      STDB_SERVER: http://database:3000
+      STDB_DATABASE: ${STDB_DATABASE:?}
+      TABULA_MANAGER_LISTEN: 0.0.0.0
+      TABULA_MANAGER_PORT: '5302'
+      TABULA_MANAGER_DATA: /app/infra/native-data
+      TABULA_MANAGER_ORIGINS: https://${TABULA_HOST:?}
+      TABULA_MANAGER_HOSTS: ${TABULA_HOST:?},localhost:5302,127.0.0.1:5302
+      npm_config_cache: /tmp/npm
+      OIDC_ISSUER: ${OIDC_ISSUER:?}
+      OIDC_AUDIENCE: tabula
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_EFFORT: ${AI_EFFORT:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+    volumes:
+      - publisher:/home/spacetime/.config/spacetime
+      - manager:/app/infra/native-data
+    depends_on: [database]
     logging: *logging
   web:
     image: ${TABULA_WEB_IMAGE:?Use an immutable release digest}
@@ -50,8 +101,10 @@ services:
       VITE_OIDC_ISSUER: ${OIDC_ISSUER:?}
       VITE_OIDC_CLIENT_ID: tabula
       VITE_STDB_URI: wss://${TABULA_DB_HOST:?}
-      VITE_STDB_DATABASE: tabula
-      VITE_API_BASE_URL: https://${TABULA_DB_HOST:?}/v1/database/tabula/route/api/v3
+      VITE_STDB_DATABASE: ${STDB_DATABASE:?}
+      VITE_API_BASE_URL: https://${TABULA_DB_HOST:?}/v1/database/${STDB_DATABASE:?}/route/api/v3
+      VITE_NATIVE_MANAGER_URL: /native
+    depends_on: [manager]
     networks: [default, proxy]
     labels:
       traefik.enable: 'true'
@@ -64,6 +117,7 @@ services:
 volumes:
   database:
   publisher:
+  manager:
 networks:
   proxy:
     external: true

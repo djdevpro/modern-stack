@@ -70,8 +70,10 @@ jobs:
       - name: Python et Node (syntaxe)
         run: |
           python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \
-            setup.py terraform/tabula/*.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
+            setup.py s3_guard.py test_s3_guard.py test_setup_adapter.py terraform/tabula/*.py stack/scripts/cf-dns stack/stalwart/jmap-admin.py .github/scripts/veille_images.py
           node --check terraform/drive/keycloak/configure.mjs
+          python3 -m unittest test_s3_guard test_setup_adapter
+          python3 terraform/tabula/verify_import.py
       - name: actionlint
         run: .github/scripts/outil actionlint -color
       - name: zizmor (sécurité des workflows)

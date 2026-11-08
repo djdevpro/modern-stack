@@ -2,6 +2,10 @@ terraform {
   required_version = ">= 1.6"
 
   required_providers {
+    minio = {
+      source  = "aminueza/minio"
+      version = "3.45.1"
+    }
     hcloud = {
       source  = "hetznercloud/hcloud"
       version = ">= 1.57, < 2.0"

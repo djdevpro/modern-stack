@@ -41,14 +41,8 @@ variable "location" {
 }
 
 variable "bucket_name" {
-  description = "Nom du bucket du Drive (unique chez Hetzner). S'il existe déjà : python setup.py tf drive import minio_s3_bucket.drive <nom>."
+  description = "Bucket existant partagé, configuré par la pile infra dans shared_app_storage ; aucune création ni import dans la pile Drive."
   type        = string
-}
-
-variable "incomplete_upload_days" {
-  description = "Envois multipart abandonnés supprimés par Hetzner après ce nombre de jours (ils sont facturés tant qu'ils existent)."
-  type        = number
-  default     = 3
 }
 
 variable "dns_zone" {

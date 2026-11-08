@@ -21,17 +21,14 @@ Python 3.10 ou plus, bibliothèque standard seulement.
 
 from __future__ import annotations
 
-import datetime
 import getpass
-import hashlib
-import hmac
 import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+from s3_guard import IsolationError, verify_isolation
 
 ROOT = Path(__file__).resolve().parent
 STORE = Path(os.environ.get("MODERN_STACK_SECRETS") or Path.home() / ".config" / "modern-stack" / "secrets.env")
@@ -54,9 +51,9 @@ SECRETS: dict[str, tuple[str, set[str], bool, str]] = {
                               "clé S3 du bucket de l'état Terraform"),
     "TFSTATE_SECRET_ACCESS_KEY": ("AWS_SECRET_ACCESS_KEY", {"infra", "drive", "tabula"}, True,
                                   "clé secrète S3 du bucket de l'état Terraform"),
-    "DRIVE_S3_ACCESS_KEY_ID": ("TF_VAR_drive_s3_access_key", {"drive"}, True,
+    "DRIVE_S3_ACCESS_KEY_ID": ("TF_VAR_drive_s3_access_key", {"infra", "drive", "tabula"}, True,
                                "clé S3 du projet Hetzner du Drive"),
-    "DRIVE_S3_SECRET_ACCESS_KEY": ("TF_VAR_drive_s3_secret_key", {"drive"}, True,
+    "DRIVE_S3_SECRET_ACCESS_KEY": ("TF_VAR_drive_s3_secret_key", {"infra", "drive", "tabula"}, True,
                                    "clé secrète S3 du projet Hetzner du Drive"),
     "CLOUDFLARE_API_TOKEN": ("TF_VAR_cloudflare_api_token", {"drive"}, True,
                              "jeton API Cloudflare (DNS de la zone du Drive)"),
@@ -180,46 +177,17 @@ def cmd_import(args: list[str]) -> None:
 
 # ---------- Garde-fou : les clés du Drive ne doivent pas ouvrir l'état Terraform ----------
 
-def list_buckets(access_key: str, secret_key: str) -> list[str]:
-    """ListBuckets signé SigV4 (bibliothèque standard), pour vérifier la portée des clés."""
-    now = datetime.datetime.now(datetime.timezone.utc)
-    amz_date, day = now.strftime("%Y%m%dT%H%M%SZ"), now.strftime("%Y%m%d")
-    payload = hashlib.sha256(b"").hexdigest()
-    headers = f"host:{S3_HOST}\nx-amz-content-sha256:{payload}\nx-amz-date:{amz_date}\n"
-    signed = "host;x-amz-content-sha256;x-amz-date"
-    request = "\n".join(["GET", "/", "", headers, signed, payload])
-    scope = f"{day}/{S3_REGION}/s3/aws4_request"
-    to_sign = "\n".join(["AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(request.encode()).hexdigest()])
-
-    def mac(key: bytes, msg: str) -> bytes:
-        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
-
-    key = mac(mac(mac(mac(("AWS4" + secret_key).encode(), day), S3_REGION), "s3"), "aws4_request")
-    signature = hmac.new(key, to_sign.encode(), hashlib.sha256).hexdigest()
-    http = urllib.request.Request(f"https://{S3_HOST}/", headers={
-        "x-amz-date": amz_date,
-        "x-amz-content-sha256": payload,
-        "Authorization": f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed}, Signature={signature}",
-    })
-    try:
-        with urllib.request.urlopen(http, timeout=20) as response:
-            body = response.read().decode()
-    except urllib.error.HTTPError as error:
-        fail(f"ListBuckets refusé par Hetzner (HTTP {error.code}) : clés du Drive invalides ?")
-    return re.findall(r"<Name>([^<]+)</Name>", body)
-
-
 def check_drive(store: dict[str, str]) -> None:
-    access, secret = store.get("DRIVE_S3_ACCESS_KEY_ID"), store.get("DRIVE_S3_SECRET_ACCESS_KEY")
-    if not access or not secret:
-        fail("clés du Drive manquantes : python setup.py secrets set DRIVE_S3_ACCESS_KEY_ID (puis la clé secrète)")
-    if access == store.get("TFSTATE_ACCESS_KEY_ID"):
-        fail("les clés du Drive sont celles de l'état Terraform : crée-les dans un projet Hetzner séparé")
-    buckets = list_buckets(access, secret)
-    if STATE_BUCKET in buckets:
-        fail(f"les clés du Drive ouvrent aussi {STATE_BUCKET} (même projet Hetzner). Crée le bucket du Drive "
-             "et ses clés dans un projet séparé : le prix de base de l'Object Storage est par compte, pas par projet.")
-    print(f"clés du Drive : OK, buckets visibles : {', '.join(buckets) or '(aucun)'}")
+    # La liste des buckets ne prouve pas leurs droits : les politiques peuvent refuser leur contenu.
+    config = (ROOT / "terraform" / "drive" / "terraform.tfvars").read_text(encoding="utf-8")
+    match = re.search(r'^\s*bucket_name\s*=\s*"([^"\r\n]+)"', config, re.MULTILINE)
+    if not match:
+        fail("bucket_name absent de terraform/drive/terraform.tfvars")
+    try:
+        verify_isolation(store, S3_HOST, S3_REGION, STATE_BUCKET, match.group(1))
+    except IsolationError as error:
+        fail(str(error))
+    print("clés applicatives : accès au bucket existant confirmé, état Terraform interdit")
 
 
 # ---------- Terraform ----------
@@ -231,12 +199,16 @@ def terraform(stack: str, args: list[str]) -> int:
     missing = [n for n, (_, stacks, required, _) in SECRETS.items() if stack in stacks and required and not store.get(n)]
     if missing:
         fail(f"secrets manquants pour {stack} : {', '.join(missing)} (python setup.py secrets set NOM)")
-    if stack == "drive" and args[:1] in (["plan"], ["apply"]):
+    if stack in {"drive", "tabula"} and args[:1] in (["plan"], ["apply"]):
         check_drive(store)
     env = dict(os.environ)
     for name, (variable, stacks, _, _) in SECRETS.items():
         if stack in stacks and store.get(name):
             env[variable] = store[name]
+    if stack == "infra":
+        # Uniquement le provider qui protège le bucket d'état ; jamais transmis aux applications.
+        env["TF_VAR_state_s3_access_key"] = store["TFSTATE_ACCESS_KEY_ID"]
+        env["TF_VAR_state_s3_secret_key"] = store["TFSTATE_SECRET_ACCESS_KEY"]
     return subprocess.run(["terraform", f"-chdir={STACKS[stack]}", *args], env=env).returncode
 
 

@@ -1,3 +1,4 @@
+# bucket_name doit correspondre au bucket partagé géré par la pile infra.
 # Copie en terraform.tfvars (non versionné) et adapte. Les secrets passent par setup.py, jamais par ici.
 bucket_name          = "mon-drive"
 dns_zone             = "mondomaine.fr"

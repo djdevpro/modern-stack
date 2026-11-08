@@ -1,6 +1,7 @@
 output "bucket" {
-  description = "Nom du bucket du Drive."
-  value       = minio_s3_bucket.drive.bucket
+  description = "Bucket existant partagé, configuré par la pile infra."
+  value       = var.bucket_name
+  depends_on  = [terraform_data.shared_storage]
 }
 
 output "server_env" {

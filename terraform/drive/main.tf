@@ -1,5 +1,5 @@
 # Universal Drive (mode instance), entièrement par Terraform. Valeurs propres au serveur : terraform.tfvars.
-#   1. bucket privé, règle CORS, nettoyage des envois abandonnés (projet Hetzner du Drive) ;
+#   1. validation du bucket existant et de l'origine, gérés par la pile infra ;
 #   2. client « drive » du realm Keycloak, configuré sur le serveur (configure.mjs) ;
 #   3. .env du Drive déposé sur le serveur ;
 #   4. entrées DNS du Drive (Cloudflare) ;
@@ -37,43 +37,24 @@ data "terraform_remote_state" "infra" {
   }
 }
 
-# ---------- 1. Stockage ----------
+# ---------- 1. Stockage partagé (géré uniquement par la pile infra) ----------
 
-resource "minio_s3_bucket" "drive" {
-  bucket         = var.bucket_name
-  acl            = "private"
-  object_locking = false
-  force_destroy  = false
+# Cette pile ne crée pas de bucket et ne remplace jamais ses CORS/lifecycle.
+# Ajouter l'origine du Drive aux règles conservées de la pile infra avant activation.
+locals {
+  shared_storage = try(data.terraform_remote_state.infra.outputs.shared_app_storage, null)
+}
 
-  # Le bucket contient les fichiers des utilisateurs : jamais de destruction par Terraform.
+resource "terraform_data" "shared_storage" {
+  input = { bucket = var.bucket_name, origin = local.public_origin }
+
   lifecycle {
-    prevent_destroy = true
-  }
-}
-
-# Envois et aperçus vont en direct du navigateur au bucket par URL présignées : seule l'origine du
-# Drive est autorisée ; ETag (multipart) et Retry-After (reprises) sont lisibles par le front.
-resource "minio_s3_bucket_cors" "drive" {
-  bucket = minio_s3_bucket.drive.id
-
-  cors_rule {
-    id              = "universal-drive"
-    allowed_origins = [local.public_origin]
-    allowed_methods = ["GET", "PUT", "HEAD"]
-    allowed_headers = ["*"]
-    expose_headers  = ["ETag", "Retry-After"]
-    max_age_seconds = 600
-  }
-}
-
-resource "minio_s3_bucket_lifecycle" "drive" {
-  bucket = minio_s3_bucket.drive.id
-
-  rule {
-    id = "envois-incomplets"
-
-    abort_incomplete_multipart_upload {
-      days_after_initiation = var.incomplete_upload_days
+    precondition {
+      condition = local.shared_storage == null ? false : (
+        local.shared_storage.bucket == var.bucket_name &&
+        contains(local.shared_storage.cors_origins, local.public_origin)
+      )
+      error_message = "Configurer d'abord ce bucket existant et l'origine du Drive dans shared_app_storage de la pile infra."
     }
   }
 }
@@ -82,6 +63,7 @@ resource "minio_s3_bucket_lifecycle" "drive" {
 
 # Le mot de passe d'admin de Keycloak reste sur le serveur : run.sh le lit dans /opt/stack/.env.
 resource "terraform_data" "keycloak" {
+  depends_on = [terraform_data.shared_storage]
   triggers_replace = [
     filesha256("${path.module}/keycloak/configure.mjs"),
     filesha256("${path.module}/keycloak/run.sh"),
@@ -147,7 +129,7 @@ locals {
     UD_S3_ENDPOINT=https://${var.location}.your-objectstorage.com
     UD_S3_REGION=${var.location}
     UD_S3_ADDRESSING=virtual
-    UD_S3_BUCKET=${minio_s3_bucket.drive.bucket}
+    UD_S3_BUCKET=${var.bucket_name}
     UD_S3_ACCESS_KEY_ID=${var.drive_s3_access_key}
     UD_S3_SECRET_ACCESS_KEY=${var.drive_s3_secret_key}
     UD_ALLOWED_ENDPOINTS=*.your-objectstorage.com
@@ -158,7 +140,7 @@ locals {
 # Redéposé dès que le contenu change (seule son empreinte est gardée dans l'état).
 resource "terraform_data" "server_env" {
   triggers_replace = sha256(local.server_env)
-  depends_on       = [terraform_data.keycloak]
+  depends_on       = [terraform_data.keycloak, terraform_data.shared_storage]
 
   connection {
     type        = "ssh"
@@ -242,7 +224,7 @@ resource "terraform_data" "app" {
   ]
   depends_on = [
     terraform_data.server_env,
-    minio_s3_bucket_cors.drive,
+    terraform_data.shared_storage,
     cloudflare_dns_record.drive_a,
     cloudflare_dns_record.drive_aaaa,
   ]

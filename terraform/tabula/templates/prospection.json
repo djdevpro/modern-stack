@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "key": "prospection-v1",
+  "title": "Prospection et enrichissement",
+  "tables": [
+    {
+      "key": "prospects", "title": "Prospects",
+      "description": "Contacts à qualifier, contacter et suivre. Renseigner les faits et leurs sources ; les besoins supposés restent des hypothèses.",
+      "fields": [
+        {"key":"name","title":"Nom","type":"SingleLineText"},
+        {"key":"job","title":"Fonction","type":"SingleLineText"},
+        {"key":"email","title":"Email professionnel","type":"Email"},
+        {"key":"phone","title":"Téléphone","type":"PhoneNumber"},
+        {"key":"linkedin","title":"Profil LinkedIn","type":"URL"},
+        {"key":"source","title":"Source du prospect","type":"SingleLineText"},
+        {"key":"source_url","title":"Lien source ou communauté","type":"URL"},
+        {"key":"activity","title":"Activité","type":"LongText"},
+        {"key":"needs","title":"Besoins supposés","type":"LongText","description":"Hypothèses à confirmer, jamais considérées comme une intention d'achat."},
+        {"key":"personalization","title":"Personnalisation","type":"LongText"},
+        {"key":"score","title":"Score d'adéquation","type":"Number","description":"Score à déterminer selon les critères du client idéal, sur 100."},
+        {"key":"score_reason","title":"Justification du score","type":"LongText"},
+        {"key":"missing","title":"Éléments manquants","type":"LongText"},
+        {"key":"qualification","title":"Qualification","type":"SingleSelect","choices":["À qualifier","Qualifié","Non qualifié","À confirmer"]},
+        {"key":"enrichment","title":"Enrichissement","type":"SingleSelect","choices":["À faire","À vérifier","Complet"]},
+        {"key":"duplicate","title":"Contrôle des doublons","type":"SingleSelect","choices":["À vérifier","Vérifié","Doublon possible"]},
+        {"key":"status","title":"Statut","type":"SingleSelect","choices":["À qualifier","À contacter","Contacté","En discussion","Gagné","Perdu"]},
+        {"key":"last_contact","title":"Dernier contact","type":"DateTime"},
+        {"key":"action","title":"Prochaine action","type":"SingleSelect","choices":["Contacter","Relancer","Attendre","Enrichir","Rendez-vous","Autre"]},
+        {"key":"due","title":"Date de prochaine action","type":"DateTime"},
+        {"key":"channel","title":"Canal prévu","type":"SingleSelect","choices":["Email","Téléphone","LinkedIn","Autre"]},
+        {"key":"preference","title":"Préférences de contact","type":"LongText"},
+        {"key":"refused","title":"Refus de contact","type":"Checkbox"},
+        {"key":"response_baseline","title":"Réponses au début de la séquence","type":"Number","description":"Pour démarrer une nouvelle séquence après une réponse, reporter le nombre actuel de réponses ; une nouvelle réponse l'arrêtera à nouveau."},
+        {"key":"draft","title":"Message proposé","type":"LongText"},
+        {"key":"approved","title":"Message validé","type":"Checkbox","description":"Validation humaine à obtenir avant tout envoi."}
+      ]
+    },
+    {
+      "key":"companies", "title":"Entreprises",
+      "description":"Informations de qualification de l'entreprise et de son offre.",
+      "fields":[
+        {"key":"name","title":"Nom","type":"SingleLineText"},
+        {"key":"sector","title":"Secteur","type":"SingleLineText"},
+        {"key":"website","title":"Site web","type":"URL"},
+        {"key":"size","title":"Taille","type":"SingleLineText"},
+        {"key":"location","title":"Localisation","type":"SingleLineText"},
+        {"key":"activity","title":"Activité","type":"LongText"},
+        {"key":"offer","title":"Offre","type":"LongText"},
+        {"key":"qualification","title":"Éléments de qualification","type":"LongText"}
+      ]
+    },
+    {
+      "key":"signals", "title":"Signaux",
+      "description":"Occasions à examiner : un signal ne prouve pas une intention d'achat.",
+      "fields":[
+        {"key":"name","title":"Signal","type":"SingleLineText"},
+        {"key":"kind","title":"Type","type":"SingleSelect","choices":["Besoin exprimé","Recrutement","Lancement","Publication","Interaction","Autre"]},
+        {"key":"date","title":"Date du signal","type":"Date"},
+        {"key":"source","title":"Source","type":"SingleLineText"},
+        {"key":"url","title":"Lien source","type":"URL"},
+        {"key":"explanation","title":"Explication","type":"LongText"},
+        {"key":"reliability","title":"Fiabilité","type":"SingleSelect","choices":["Fait vérifié","Hypothèse à confirmer"]},
+        {"key":"observed","title":"Date de vérification","type":"Date"},
+        {"key":"review","title":"À examiner","type":"Checkbox"}
+      ]
+    },
+    {
+      "key":"interactions", "title":"Interactions",
+      "description":"Historique des échanges. Lier chaque interaction à un prospect pour que les compteurs de réponse et de refus fonctionnent.",
+      "fields":[
+        {"key":"name","title":"Interaction","type":"SingleLineText"},
+        {"key":"date","title":"Date","type":"DateTime"},
+        {"key":"channel","title":"Canal","type":"SingleSelect","choices":["Email","Téléphone","LinkedIn","Rendez-vous","Autre"]},
+        {"key":"summary","title":"Résumé","type":"LongText"},
+        {"key":"result","title":"Résultat","type":"SingleSelect","choices":["Sans réponse","Réponse","Refus","Rendez-vous fixé","Échec","Autre"]},
+        {"key":"next","title":"Prochaine action convenue","type":"LongText"},
+        {"key":"response_count","title":"Réponse enregistrée","type":"Formula","options":{"formula":"IF(OR({Résultat} = \"Réponse\", {Résultat} = \"Rendez-vous fixé\"), 1, 0)"}},
+        {"key":"refusal_count","title":"Refus enregistré","type":"Formula","options":{"formula":"IF({Résultat} = \"Refus\", 1, 0)"}}
+      ]
+    },
+    {
+      "key":"evidence", "title":"Sources et vérifications",
+      "description":"Une ligne par information, avec sa source, sa date et sa fiabilité.",
+      "fields":[
+        {"key":"name","title":"Information","type":"SingleLineText"},
+        {"key":"field","title":"Champ concerné","type":"SingleLineText"},
+        {"key":"value","title":"Valeur ou observation","type":"LongText"},
+        {"key":"source","title":"Source","type":"SingleLineText"},
+        {"key":"url","title":"Lien source","type":"URL"},
+        {"key":"observed","title":"Date de collecte ou vérification","type":"Date"},
+        {"key":"reliability","title":"Fiabilité","type":"SingleSelect","choices":["Fait vérifié","Hypothèse à confirmer"]},
+        {"key":"notes","title":"Notes","type":"LongText"}
+      ]
+    },
+    {
+      "key":"settings", "title":"Paramètres",
+      "description":"Critères et délais à définir. Ces valeurs sont destinées à la personne ou à l'automatisation qui effectue le suivi.",
+      "fields":[
+        {"key":"name","title":"Paramètre","type":"SingleLineText"},
+        {"key":"value","title":"Valeur","type":"LongText"},
+        {"key":"description","title":"Utilisation","type":"LongText"}
+      ]
+    }
+  ],
+  "relations":[
+    {"table":"prospects","key":"company","title":"Entreprise","target":"companies","inverse_key":"prospects","inverse_title":"Prospects","allow_multiple":false},
+    {"table":"signals","key":"prospect","title":"Prospect","target":"prospects","inverse_key":"signals","inverse_title":"Signaux","allow_multiple":false},
+    {"table":"signals","key":"company","title":"Entreprise","target":"companies","inverse_key":"signals","inverse_title":"Signaux","allow_multiple":false},
+    {"table":"interactions","key":"prospect","title":"Prospect","target":"prospects","inverse_key":"interactions","inverse_title":"Interactions","allow_multiple":false},
+    {"table":"evidence","key":"prospect","title":"Prospect","target":"prospects","inverse_key":"evidence","inverse_title":"Sources et vérifications","allow_multiple":false},
+    {"table":"evidence","key":"company","title":"Entreprise","target":"companies","inverse_key":"evidence","inverse_title":"Sources et vérifications","allow_multiple":false}
+  ],
+  "computed":[
+    {"table":"prospects","key":"responses","title":"Nombre de réponses","type":"Rollup","link":"interactions","target_field":"response_count","function":"sum"},
+    {"table":"prospects","key":"refusals","title":"Nombre de refus","type":"Rollup","link":"interactions","target_field":"refusal_count","function":"sum"},
+    {"table":"prospects","key":"followups_allowed","title":"Relance autorisée (réponses)","type":"Formula","options":{"formula":"IF({Nombre de réponses} <= IF(ISBLANK({Réponses au début de la séquence}), 0, {Réponses au début de la séquence}), 1, 0)"}}
+  ],
+  "views":[
+    {"table":"prospects","key":"all","title":"Tous les prospects","type":"grid","default":true},
+    {"table":"prospects","key":"enrich","title":"À enrichir","type":"grid","fields":["name","company","job","email","enrichment","duplicate","qualification","score","score_reason","missing"],"filter":{"any":[{"field":"enrichment","op":"neq","choice":"Complet"},{"field":"job","op":"blank"},{"field":"email","op":"blank"},{"field":"company","op":"blank"},{"field":"qualification","op":"blank"},{"field":"score","op":"blank"},{"field":"score_reason","op":"blank"}]}},
+    {"table":"prospects","key":"contact","title":"À contacter","type":"grid","fields":["name","company","qualification","score","action","due","channel","approved","preference","responses","response_baseline","refusals"],"sorts":[{"field":"due","direction":"asc"}],"filter":{"all":[{"field":"qualification","op":"eq","choice":"Qualifié"},{"field":"action","op":"anyof","choices":["Contacter","Relancer"]},{"field":"due","op":"notblank"},{"field":"refused","op":"notchecked"},{"field":"refusals","op":"eq","value":0},{"any":[{"field":"action","op":"neq","choice":"Relancer"},{"field":"followups_allowed","op":"eq","value":1}]}]}},
+    {"table":"prospects","key":"today","title":"À traiter aujourd’hui","type":"grid","fields":["name","company","action","due","channel","approved","preference","responses","response_baseline","refusals"],"sorts":[{"field":"due","direction":"asc"}],"filter":{"all":[{"field":"due","op":"le","value":{"mode":"today"}},{"field":"action","op":"notblank"},{"field":"refused","op":"notchecked"},{"field":"refusals","op":"eq","value":0},{"any":[{"field":"action","op":"neq","choice":"Relancer"},{"field":"followups_allowed","op":"eq","value":1}]}]}},
+    {"table":"prospects","key":"pipeline","title":"Pipeline Kanban","type":"kanban","stack":"status","fields":["name","company","score","action","due"]},
+    {"table":"prospects","key":"calendar","title":"Calendrier","type":"calendar","date":"due","fields":["name","company","action","channel"]},
+    {"table":"companies","key":"all","title":"Toutes les entreprises","type":"grid","default":true},
+    {"table":"signals","key":"all","title":"Tous les signaux","type":"grid","default":true},
+    {"table":"signals","key":"recent","title":"Signaux récents","type":"grid","fields":["name","date","kind","prospect","company","reliability","source","url","explanation"],"sorts":[{"field":"date","direction":"desc"}],"filter":{"all":[{"field":"date","op":"isWithin","value":{"mode":"pastNumberOfDays","days":30}}]}},
+    {"table":"interactions","key":"all","title":"Toutes les interactions","type":"grid","default":true},
+    {"table":"evidence","key":"all","title":"Toutes les sources","type":"grid","default":true},
+    {"table":"settings","key":"all","title":"Tous les paramètres","type":"grid","default":true}
+  ],
+  "seeds":[
+    {"table":"settings","key":"ideal_customer","values":{"name":"Critères du client idéal","value":"À définir","description":"Secteurs, taille, fonctions et autres critères de qualification."}},
+    {"table":"settings","key":"scoring","values":{"name":"Règles de score","value":"À définir","description":"Barème sur 100 et justification attendue ; ne calcule pas automatiquement le score."}},
+    {"table":"settings","key":"followups","values":{"name":"Délais de relance","value":"À définir","description":"Délais entre les actions ; toute réponse ou tout refus arrête la séquence prévue."}},
+    {"table":"settings","key":"signal_search","values":{"name":"Fréquence de recherche des signaux","value":"À définir","description":"Fréquence pour une future automatisation ; aucun déclenchement n'est installé."}},
+    {"table":"settings","key":"recent_signal","values":{"name":"Fenêtre des signaux récents","value":"30 jours","description":"Modifier le filtre de la vue Signaux récents pour changer la fenêtre."}}
+  ]
+}

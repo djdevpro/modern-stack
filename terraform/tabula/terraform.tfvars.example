@@ -1,6 +1,10 @@
 ssh_host   = "server.example.com"
 ssh_host_key = "ssh-ed25519 REPLACE_WITH_TRUSTED_SERVER_PUBLIC_KEY"
 admin_user = "operator"
+s3_location = "nbg1"
+existing_bucket_name = "existing-app-storage"
+# DRIVE_S3_ACCESS_KEY_ID and DRIVE_S3_SECRET_ACCESS_KEY come from setup.py's secret
+# store. Reuse the private application bucket, never the Terraform state bucket.
 update_policy = {
   repository             = "example/tabula"
   grace_hours            = 4

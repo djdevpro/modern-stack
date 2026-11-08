@@ -11,10 +11,10 @@ variables dont chaque pile a besoin, et Terraform dépose lui-même le .env du D
     python setup.py import FICHIER [--map ANCIEN=NOUVEAU ...] [--strip | --delete]
                                                 reprend les secrets d'un ancien .env
     python setup.py check-drive                 vérifie que les clés du Drive n'ouvrent pas l'état Terraform
-    python setup.py plan  infra|drive|tabula|tabula|tabula|tabula
-    python setup.py apply infra|drive|tabula|tabula|tabula|tabula [--yes]
-    python setup.py output infra|drive|tabula|tabula|tabula|tabula [NOM]
-    python setup.py tf infra|drive|tabula|tabula|tabula|tabula ARGS...      terraform brut avec les secrets chargés
+    python setup.py plan  infra|drive|tabula
+    python setup.py apply infra|drive|tabula [--yes]
+    python setup.py output infra|drive|tabula [NOM]
+    python setup.py tf infra|drive|tabula ARGS...      terraform brut avec les secrets chargés
 
 Python 3.10 ou plus, bibliothèque standard seulement.
 """

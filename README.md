@@ -7,103 +7,101 @@
 
 <h1 align="center">modern-stack</h1>
 
-A self-hosted platform on one server: mail, single sign-on, monitoring and applications. Terraform manages infrastructure and access policies; GitHub validates changes; the server pulls approved releases.
+<p align="center">Your own cloud, with private server access and controlled delivery.</p>
 
-Docker Compose runs **Stalwart, Keycloak, PostgreSQL, Prometheus and Grafana** behind Traefik. Dokploy manages applications; [Voxel](https://github.com/djdevpro/voxel) and [S3drive](https://github.com/djdevpro/s3drive) publish their own container images.
+**modern-stack** brings email, file storage, collaborative data and identity together on one server. Secure access, supervision and the security-update cycle are built into its architecture.
 
-## Infrastructure
+## Private access comes first
 
-`python setup.py plan infra` previews changes; `python setup.py apply infra` applies them.
+Server administration starts with **NetBird**: an authorized device enters an encrypted private tunnel before reaching SSH or Dokploy.
 
 ```mermaid
 graph LR
-    A["apply infra"]:::chamois --> B["Clé SSH et pare-feu"]:::beige
-    B --> C["Serveur Hetzner"]:::beige
-    C -->|création| D["Initialisation cloud-init"]:::beige
-    D --> E["NetBird, Docker, Dokploy"]:::blanc
-    C --> F["DNS inverse IPv4/IPv6"]:::blanc
-    B --> G["Filtre privé Traefik"]:::beige
-    G --> H["Administration via NetBird"]:::blanc
-    B --> H
+    A["Internet"]:::chamois -->|"poste autorisé"| B["NetBird"]:::beige
+    B --> C["Tunnel privé chiffré"]:::beige
+    C --> D["SSH par clé"]:::blanc
+    C --> E["Dokploy privé"]:::blanc
+    A --> F["Pare-feu Hetzner"]:::beige
+    F -->|"HTTPS et mail"| G["Services publics"]:::blanc
+    F -->|"TCP 22 / 3000"| H["Accès direct bloqué"]:::blanc
 
     classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
     classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Cloud-init runs at creation; later applies reconcile managed resources and the private Dokploy route. [Prerequisites and lifecycle limits](docs/terraform.md) explain what an apply changes on an existing server.
+The **Hetzner firewall blocks direct public SSH and Dokploy access** on IPv4 and IPv6. SSH keys and the Dokploy login still authenticate the administrator. Public applications and mail remain reachable through their intended entry points.
 
-## Drive
+## Connected services, integrated identity
 
-Storage, identity and application configuration are connected through Terraform:
+**Traefik** provides the HTTPS entry point. **Keycloak** handles OIDC authentication and application roles for Drive and Tabula, with PKCE and controlled redirects.
 
 ```mermaid
 graph LR
-    A["apply drive"]:::chamois --> B["Lecture état infra"]:::beige
-    A --> C["Bucket privé et règles"]:::beige
-    B --> D["Client SSO Keycloak"]:::beige
-    C --> E["Configuration privée Drive"]:::beige
-    D --> E
-    B --> F["DNS Cloudflare A/AAAA"]:::beige
-    A --> G["Commit applicatif GitHub"]:::beige
-    E --> H["Build et lancement Docker"]:::blanc
-    F --> H
-    G --> H
+    A["Traefik · HTTPS"]:::chamois --> B["Voxel · webmail"]:::beige
+    B --> C["Stalwart · messagerie"]:::blanc
+    A --> D["Drive · fichiers"]:::beige
+    D --> E["Stockage S3 privé"]:::blanc
+    A --> F["Tabula · données collaboratives"]:::beige
+    F --> G["SpacetimeDB · temps réel"]:::blanc
+    H["Keycloak · identité"]:::chamois -.->|"OIDC / PKCE"| D
+    H -.->|"OIDC / PKCE"| F
 
     classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
     classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-**Legacy path:** this diagram reflects `terraform/drive/`, which still uses public SSH and a server-side build. Production uses the image-based `drive` service in `stack/`; [migration is required](docs/terraform.md) before reusing the old deployment path.
+[Voxel](https://github.com/djdevpro/voxel) provides webmail over Stalwart; [Drive](https://github.com/djdevpro/s3drive) keeps files in private S3 storage; Tabula uses SpacetimeDB for collaborative data in real time. Keycloak persists identity in PostgreSQL. Each service keeps its own data layer.
 
-## Security
+## Supervision with Prometheus and Grafana
 
-**The Hetzner firewall blocks public SSH, in IPv4 and IPv6. NetBird provides the private network used to reach the server.** An authorized workstation joins NetBird, then OpenSSH authenticates the administrator with an SSH key. Dokploy also remains behind its application login.
+**Grafana** provides private dashboards backed by **Prometheus**. Container health checks and deployment reports add a second view: whether a release actually reached a healthy running state.
 
 ```mermaid
 graph LR
-    A["Internet"]:::chamois --> B["Pare-feu Hetzner"]:::beige
-    B -->|"80 / 443"| C["Traefik : applications publiques"]:::blanc
-    B -->|"25 / 465 / 587 / 993"| D["Stalwart : messagerie"]:::blanc
-    B -->|"TCP 22 / 3000"| E["Accès public bloqué"]:::blanc
-    F["Poste administrateur autorisé"]:::chamois --> G["Tunnel privé NetBird"]:::beige
-    G --> H["OpenSSH et Dokploy privés"]:::blanc
+    A["Métriques configurées"]:::chamois --> B["Prometheus"]:::beige
+    B --> C["Grafana · tableaux de bord"]:::blanc
+    D["Administrateur"]:::chamois --> E["Tunnel privé NetBird"]:::beige
+    E --> C
+    F["Santé des conteneurs"]:::chamois --> G["Agent de déploiement"]:::beige
+    G --> H["Statuts et alertes GitHub"]:::blanc
 
     classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
     classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
     classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
 ```
 
-Public UDP 51820 supports NetBird's direct tunnel; UDP 443 supports HTTP/3. Other inbound ports are denied by the [cloud firewall](terraform/main.tf).
+Dashboards and their data source are versioned alongside the platform. GitHub exposes deployment status and opens an issue when a deployment fails. [Monitoring scope and configured targets](docs/operations.md#supervision) distinguish available dashboards from metrics actually collected.
 
-| Protection | Implementation |
-|---|---|
-| SSH authentication | Keys only, no root/password login; restricted users, retry limits and Fail2ban configured by [cloud-init](terraform/cloud-init.yaml.tftpl). |
-| Private administration | TCP 22/3000 closed publicly; a [Traefik IP allowlist](terraform/configure-private-admin.py) also protects Dokploy's HTTP route and does not trust a client-supplied `X-Forwarded-For`. |
-| Application identity | Keycloak SSO; Tabula's [public OIDC client](terraform/tabula/configure.py) uses PKCE and configured redirect URLs. |
-| Secrets and state | [setup.py](setup.py) loads credentials outside the repository. Terraform state and plans stay private; Tabula's generated passwords remain in server files with mode 0600. |
-| Data protection | Configurable server backups/deletion protection, a protected Drive bucket, and a [Tabula backup](stack/tabula/deploy.sh) before deployment. |
-| Observability | [Prometheus and Grafana](stack/compose.yaml), container health checks and [deployment reports](.github/workflows/cd.yml). |
+## From a CVE to a verified redeployment
 
-## Delivery and updates
+**Trivy** scans pinned images every night. Security findings are reported; rebuilt images and **Dependabot** updates enter the same review and validation path.
 
-- **Validate:** [CI](.github/workflows/ci.yml) checks Git history for secrets, Terraform format/validation/lint, Compose, scripts, workflows, infrastructure misconfigurations and changed container images.
-- **Deploy:** the [server agent](deploiement/agent.sh) polls `main` every five minutes, requires successful CI, refuses conflicting manual edits and checks container health. CI runners need no inbound SSH access to production.
-- **Patch:** images are pinned by digest. [Nightly CVE scans](.github/workflows/veille-securite.yml) and Dependabot propose updates; [defined update categories](.github/workflows/fusion-auto.yml) can merge after required checks. System packages use unattended upgrades configured at bootstrap.
-- **Stage Tabula releases:** builds, container checks and scans precede a GitHub notification; promotion waits at least four hours, with a manual veto. Terraform manages the delay and server timer. [Full release flow and controls](docs/terraform.md).
+```mermaid
+graph LR
+    A["Veille CVE · Trivy"]:::chamois --> B["Alerte de sécurité"]:::blanc
+    A -->|"correctif disponible"| C["PR de mise à jour"]:::beige
+    C --> D{"CI validée ?"}:::chamois
+    D -->|"non"| E["Déploiement bloqué"]:::blanc
+    D -->|"oui, après fusion"| G["Redéploiement"]:::beige
+    G --> H["Santé et rapport"]:::blanc
 
-The Mermaid sources live in this README and the [Terraform guide](docs/terraform.md). Update them alongside implementation changes in the same PR.
+    classDef chamois fill:#d4a574,color:#3b2314,stroke:#b8895a,stroke-width:2px
+    classDef blanc fill:#fefefe,color:#3b2314,stroke:#d4a574,stroke-width:2px
+    classDef beige fill:#f5e6d3,color:#3b2314,stroke:#d4a574,stroke-width:2px
+```
 
-## Layout
+CI checks infrastructure, scripts, workflows and image security. Eligible updates can merge automatically after validation; other changes require review. The server **pulls** approved changes, refuses conflicting manual edits, redeploys and reports health. GitHub runners need no SSH access to production.
 
-| Folder | Content |
-|---|---|
-| `terraform/` | Server, firewall, reverse DNS |
-| `terraform/drive/` | Drive storage, identity, DNS and legacy deployment |
-| `terraform/tabula/` | Tabula identity, SMTP, initial account and update policy |
-| `stack/` | Core services (Docker Compose) and helper scripts |
-| `deploiement/` | Pull-based deployment agent |
-| `.github/` | CI, deployment status, nightly CVE scan, Dependabot |
+Tabula adds a staged release policy: builds, container checks and scans, a notification, **at least four hours to intervene**, then promotion and a backup before deployment.
 
-No secrets live in this repository.
+## Built to operate
+
+**Terraform** defines infrastructure, private access and application configuration. **Docker Compose** keeps services reproducible, with persistent data, pinned images and explicit resource limits where configured. Secrets are supplied outside Git; state and backups remain private.
+
+- [Terraform guide](docs/terraform.md) — commands, provisioning diagrams and prerequisites.
+- [Operations and security](docs/operations.md) — network boundaries, monitoring coverage and the CVE/redeployment cycle.
+- [Private administration](terraform/PRIVATE-ADMIN.md) — access policy and recovery.
+
+The diagrams are editable Mermaid sources. Keep architecture and implementation changes together in the same PR.

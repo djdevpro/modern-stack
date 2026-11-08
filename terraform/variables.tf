@@ -28,7 +28,7 @@ variable "admin_user" {
 }
 
 variable "admin_ips" {
-  description = "IP(s) autorisées en SSH public et sur le panneau Dokploy, en CIDR (ex: [\"203.0.113.10/32\"]). Vide = SSH public fermé (accès uniquement via NetBird)."
+  description = "IP(s) autorisees sur le panneau Dokploy public, en CIDR. SSH reste accessible uniquement via NetBird."
   type        = list(string)
   default     = []
 }

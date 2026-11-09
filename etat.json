@@ -1,7 +1,7 @@
 {
-  "sha": "4d96aa2b28f2a173994b57041293b340c48e96c6",
+  "sha": "fc7ef79649dde828b8f616ae26aebe85afa0f450",
   "resultat": "succes",
-  "message": "Déploiement terminé après reprise contrôlée de Tabula",
-  "details": "Permissions de la sauvegarde historique corrigées. Script Tabula versionné exécuté avec succès. Santé de la stack et des services natifs vérifiée ; modèle et stockage validés.",
-  "date": "2026-11-08T16:27:41Z"
+  "message": "1 fichier(s) de stack/ déployé(s)",
+  "details": "stack/compose.yaml",
+  "date": "2026-11-09T04:26:00Z"
 }

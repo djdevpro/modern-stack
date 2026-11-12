@@ -12,7 +12,7 @@ import os
 import re
 import tempfile
 import urllib.error
-from contextlib import ExitStack, contextmanager, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -206,6 +206,7 @@ def run() -> None:
     verify_pending_publication(model, digest, scratch)
     verify_native_transport()
     verify_bootstrap(model_path)
+    verify_bootstrap_recovery(model_path, scratch)
 
 
 def verify_pending_publication(model: dict, digest: str, scratch: Path) -> None:
@@ -432,7 +433,7 @@ def verify_bootstrap(model_path: Path) -> None:
                     assert create.args[:3] == ("https://app.tabula.test/native", "fixture-jwt", "createApiToken")
                     assert create.args[3]["expiresAtMicros"] == "4600000000"
                     assert created[0].root.endswith("/v1/database/tabula-v2/route/api/v3")
-                    assert created[0].request_timeout == 1800
+                    assert created[0].request_timeout == 1800 and created[0].expires_at == 4570
                     assert created[0].token not in json.dumps(create.args[3])
                     assert remove.args[:3] == ("https://app.tabula.test/native", "refreshed-jwt", "deleteApiToken")
                     assert remove.args[3]["tokenId"] == create.args[3]["id"]
@@ -464,6 +465,159 @@ def verify_bootstrap(model_path: Path) -> None:
             else:
                 rejected(lambda: bootstrapper.refresh_login(config, "refresh", jwt("alice")), "another identity")
     print("Bootstrap checks passed: legacy compatibility, native database/proxy, temporary token coordination, refreshed cleanup identity.")
+
+
+MANAGER = "https://app.tabula.test/native"
+
+
+def scripted_run(settings: dict, model_path: Path, receipt: Path, responses: list, install=None, clock: Clock | None = None, spare: bool = False):
+    """Run the bootstrap against a scripted native manager. Returns what the manager received and what the run reported."""
+    transport, errors = Opener(responses), io.StringIO()
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(bootstrapper, "oidc_login", return_value=("fixture-jwt", "fixture-refresh")))
+        refresh = stack.enter_context(patch.object(bootstrapper, "refresh_login", return_value=("refreshed-jwt", "rotated-refresh")))
+        stack.enter_context(patch.object(bootstrapper, "choose_workspace", return_value=importer.ident("wsp", "fixture")))
+        installed = stack.enter_context(patch.object(importer, "install", side_effect=install))
+        stack.enter_context(patch.object(bootstrapper.urllib.request, "build_opener", return_value=transport))
+        stack.enter_context(patch.object(bootstrapper, "form_request", return_value=(204, {}, b"")))
+        stack.enter_context(patch.object(bootstrapper.time, "time", return_value=1000))
+        stack.enter_context((clock or Clock()).running())
+        stack.enter_context(redirect_stdout(io.StringIO()))
+        stack.enter_context(redirect_stderr(errors))
+        try:
+            bootstrapper.run(settings, model_path, receipt, {})
+            failure = None
+        except importer.ImportError_ as error:
+            failure = error
+    calls = [(request.get_method(), request.full_url.removeprefix(MANAGER), json.loads(request.data) if request.data else None,
+              request.get_header("Authorization")) for request in transport.requests]
+    assert spare or not transport.responses, "The run stopped before the scripted manager answers were used"
+    return calls, failure, errors.getvalue(), refresh, installed
+
+
+def verify_bootstrap_recovery(model_path: Path, scratch: Path) -> None:
+    native = {"backend_url": "https://database.tabula.test", "frontend_url": "https://app.tabula.test", "keycloak_url": "https://identity.tabula.test",
+              "realm": "tabula", "admin_email": "alice@tabula.test", "database_name": "tabula-v2", "native_manager_url": "/native",
+              "schema_job_timeout_seconds": None, "base_ready_timeout_seconds": None}
+    busy, create, delete = (409, {"error": "busy"}), "/catalogue/createApiToken", "/catalogue/deleteApiToken"
+
+    # The manager's short code is the only part of an error body that reaches a message.
+    for body, code in [({"error": "busy"}, "busy"), ({"error": "token_not_found"}, "token_not_found"), ({"error": "Server Secret"}, "unknown"),
+                       ({"error": "busy", "detail": "server secret"}, "unknown"), ({"error": "x" * 65}, "unknown"), (b"<html>server secret</html>", "unknown")]:
+        with patch.object(bootstrapper.urllib.request, "build_opener", return_value=Opener([(409, body)])):
+            try:
+                bootstrapper.manager_request(MANAGER, "fixture-jwt", "deleteApiToken", {"tokenId": "fixture-token-id"})
+            except bootstrapper.ManagerRefused as error:
+                assert (error.status, error.code) == (409, code) and f"(HTTP 409, {code})" in str(error) and "ecret" not in str(error), str(error)
+            else:
+                raise AssertionError("Missing manager refusal")
+    with patch.object(bootstrapper.urllib.request, "build_opener", return_value=Opener([urllib.error.URLError("fixture")])):
+        try:
+            bootstrapper.manager_request(MANAGER, "fixture-jwt", "deleteApiToken", {"tokenId": "fixture-token-id"})
+        except bootstrapper.ManagerUnavailable as error:
+            assert "URLError" in str(error)
+        else:
+            raise AssertionError("Missing transport failure")
+
+    with tempfile.TemporaryDirectory(prefix="bootstrap-recovery-", dir=scratch) as temporary:
+        directory = Path(temporary)
+
+        # Busy at creation: retried with a growing pause and byte-identical arguments, since Tabula resumes only an identical command.
+        clock = Clock()
+        calls, failure, errors, _, installed = scripted_run(native, model_path, directory / "busy.json", [busy, busy, (200, {}), (200, {})], clock=clock)
+        assert failure is None and errors == "" and installed.call_count == 1 and clock.pauses == [2.0, 3.0]
+        assert [call[1] for call in calls] == [create, create, create, delete]
+        assert json.dumps(calls[0][2]) == json.dumps(calls[1][2]) == json.dumps(calls[2][2]) and calls[0][2]["args"]["expiresAtMicros"] == "4600000000"
+        assert list(calls[0][2]["args"]) == ["id", "name", "prefix", "hash", "readOnly", "baseIds", "expiresAtMicros"]
+        assert calls[3][2] == {"args": {"tokenId": calls[0][2]["args"]["id"]}}
+
+        # Busy for too long: a clean refusal, reported with its code, and no revocation of a token that never existed.
+        clock = Clock()
+        calls, failure, errors, _, installed = scripted_run(native, model_path, directory / "always-busy.json", [busy] * 99, clock=clock, spare=True)
+        assert isinstance(failure, bootstrapper.ManagerRefused) and "(HTTP 409, busy)" in str(failure) and "Delete nothing" in str(failure)
+        assert {call[1] for call in calls} == {create} and len({json.dumps(call[2]) for call in calls}) == 1
+        assert 900 <= clock.now < 930 and max(clock.pauses) == 30 and errors == "" and installed.call_count == 0
+
+        # No other code is retried, and a refusal never triggers a phantom revocation.
+        for status, code in [(409, "conflict"), (409, "native_job_expired"), (403, "forbidden")]:
+            calls, failure, errors, _, installed = scripted_run(native, model_path, directory / "refused.json", [(status, {"error": code})])
+            assert [call[1] for call in calls] == [create] and f"(HTTP {status}, {code})" in str(failure)
+            assert "revoked" not in errors and installed.call_count == 0
+
+        # An unknown outcome does schedule a revocation; a token that turns out not to exist counts as revoked.
+        for uncertain in [urllib.error.URLError("fixture"), (502, b"<html>gateway</html>")]:
+            calls, failure, errors, _, _ = scripted_run(native, model_path, directory / "uncertain.json", [uncertain, (409, {"error": "token_not_found"})])
+            assert [call[1] for call in calls] == [create, delete] and failure is not None and errors == ""
+        # A revocation that meets a busy catalogue is retried briefly.
+        clock = Clock()
+        calls, failure, errors, _, _ = scripted_run(native, model_path, directory / "busy-revoke.json", [(200, {}), busy, busy, (200, {})], clock=clock)
+        assert [call[1] for call in calls] == [create, delete, delete, delete] and failure is None and errors == "" and clock.pauses == [2.0, 4.0]
+        clock = Clock()
+        calls, failure, errors, _, _ = scripted_run(native, model_path, directory / "stuck-revoke.json", [(200, {})] + [busy] * 99, clock=clock, spare=True)
+        assert failure is None and 60 <= clock.now < 75 and "could not be revoked; its maximum lifetime is 60 minutes" in errors
+
+        # A publication that outlives the polling timeout keeps its token: revoking it would fail the queued job.
+        receipt = directory / "pending.json"
+        base_id = importer.ident("bas", "pending")
+        noted = {"intent_id": PENDING_JOB["id"], "base_id": base_id, "step": "table", "title": "Fixture", "noted_at": "2000-01-01T00:00:00Z"}
+
+        def pending_install(api, workspace, model, digest, path):
+            importer.save(path, {"version": 1, "base_id": base_id, "pending_job": noted})
+            raise importer.OperationPending(PENDING_JOB, api.root, "fixture-key")
+
+        calls, failure, errors, _, _ = scripted_run(native, model_path, receipt, [(200, {})], install=pending_install)
+        first_token = calls[0][2]["args"]["id"]
+        assert [call[1] for call in calls] == [create] and isinstance(failure, importer.OperationPending)
+        assert f"Temporary token {first_token} is kept" in errors and "The next run revokes it" in errors
+        saved = json.loads(receipt.read_text(encoding="utf-8"))
+        assert saved["unrevoked_tokens"] == [first_token] and saved["pending_job"] == noted
+
+        # Next run: wait for the base with the session alone, revoke the kept token, then work with a new one.
+        runtime = "/bases/" + base_id + "/runtime"
+
+        def state(status: str) -> tuple[int, dict]:
+            return 200, {"baseId": base_id, "database": "tabula-native-" + base_id, "schemaVersion": 1, "status": status}
+
+        clock = Clock()
+        calls, failure, errors, refresh, installed = scripted_run(native, model_path, receipt, [
+            state("updating"), (503, {"error": "native_server_unavailable"}), urllib.error.URLError("fixture"), (403, {"error": "forbidden"}),
+            state("updating"), state("ready"), (200, {}), (200, {}), (200, {})], clock=clock)
+        assert failure is None and errors == "" and installed.call_count == 1
+        assert [call[:2] for call in calls] == [("GET", runtime)] * 6 + [("POST", delete), ("POST", create), ("POST", delete)]
+        assert all(call[2] is None for call in calls[:6]) and calls[0][3] == "Bearer fixture-jwt" and calls[4][3] == "Bearer refreshed-jwt"
+        assert calls[6][2] == {"args": {"tokenId": first_token}} and calls[7][2]["args"]["id"] not in {first_token, ""}
+        assert calls[8][2] == {"args": {"tokenId": calls[7][2]["args"]["id"]}} and clock.pauses == [1.0, 1.5, 2.25, 3.375]
+        assert "unrevoked_tokens" not in json.loads(receipt.read_text(encoding="utf-8")) and refresh.call_count == 2
+
+        # A long wait renews the session; a base that stays in publication stops the run before any token exists.
+        importer.save(receipt, {"version": 1, "base_id": base_id, "pending_job": noted})
+        clock = Clock()
+        calls, failure, errors, refresh, installed = scripted_run({**native, "base_ready_timeout_seconds": 300}, model_path, receipt, [state("updating")] * 99, clock=clock, spare=True)
+        assert {call[:2] for call in calls} == {("GET", runtime)} and installed.call_count == 0 and 300 <= clock.now < 310 and refresh.call_count >= 4
+        assert "still being published after 300 seconds" in str(failure) and "Delete nothing" in str(failure) and "[native-intents]" in str(failure)
+        # A failed publication is not waited for: the message says where to look.
+        calls, failure, errors, _, installed = scripted_run(native, model_path, receipt, [state("error")])
+        assert len(calls) == 1 and installed.call_count == 0 and "error state" in str(failure) and "[native-intents]" in str(failure)
+        for refused in [(404, {"error": "base_not_found"}), (200, {"baseId": base_id, "status": "archived"})]:
+            calls, failure, _, _, _ = scripted_run({**native, "base_ready_timeout_seconds": 30}, model_path, receipt, [refused] * 99, spare=True)
+            assert {call[1] for call in calls} == {runtime} and failure is not None
+        # A recovery base is waited for as well, and bases that never went native do not block.
+        calls, failure, _, _, _ = scripted_run({**native, "recovery_base_id": importer.ident("bas", "recovered")}, model_path, directory / "recovery.json",
+                                               [(200, {"baseId": importer.ident("bas", "recovered"), "status": "legacy"}), (200, {}), (200, {})])
+        assert [call[1] for call in calls] == ["/bases/" + importer.ident("bas", "recovered") + "/runtime", create, delete] and failure is None
+
+        # The token outlives the longest poll by a margin, whatever the timeouts.
+        calls, failure, _, _, _ = scripted_run({**native, "schema_job_timeout_seconds": 3600}, model_path, directory / "long.json", [(200, {}), (200, {})])
+        assert failure is None and calls[0][2]["args"]["expiresAtMicros"] == str((1000 + 3600 + 300 + 900) * 1_000_000)
+        calls, failure, _, _, _ = scripted_run({**native, "api_token_ttl_seconds": 1200}, model_path, directory / "short.json", [])
+        assert calls == [] and "api_token_ttl_seconds must be between 2100 and 7200" in str(failure)
+        calls, failure, _, _, _ = scripted_run({**native, "base_ready_timeout_seconds": 5}, model_path, directory / "invalid.json", [])
+        assert calls == [] and "base_ready_timeout_seconds must be between 30 and 3600" in str(failure)
+        (directory / "locked.json.lock").write_text("", encoding="utf-8")
+        calls, failure, _, _, _ = scripted_run(native, model_path, directory / "locked.json", [])
+        assert calls == [] and "Import lock exists" in str(failure)
+    print("Bootstrap recovery checks passed: manager error codes, busy retried with identical arguments, no phantom revocation, "
+          "kept token revoked by the next run, wait for a ready base, token lifetime above the polling timeout.")
 
 
 if __name__ == "__main__":

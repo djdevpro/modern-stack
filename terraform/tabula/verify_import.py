@@ -9,9 +9,10 @@ import hashlib
 import io
 import json
 import os
+import re
 import tempfile
 import urllib.error
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,8 +20,29 @@ import import_template as importer
 import bootstrap_model as bootstrapper
 
 
+PENDING_JOB = {"id": "intent-fixture-pending", "status": "queued", "pollPath": "/meta/schema-jobs?intentId=intent-fixture-pending"}
+
+
+class Clock:
+    """Virtual time: a pause only moves the clock, so waits of many minutes are checked instantly."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.pauses: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.pauses.append(seconds)
+        self.now += seconds
+
+    @contextmanager
+    def running(self):
+        with patch.object(importer.time, "sleep", self.sleep), patch.object(importer.time, "monotonic", lambda: self.now):
+            yield self
+
+
 class FakeApi:
-    def __init__(self, fail_after: int | None = None, lose_base_response: bool = False):
+    def __init__(self, fail_after: int | None = None, lose_base_response: bool = False, pending_after: int | None = None,
+                 pending_applied: bool = True, busy_reads: int = 0):
         self.root = "https://tabula.test/v1/database/tabula/route/api/v3"
         self.workspace = importer.ident("wsp", "workspace")
         self.bases: list[dict] = []
@@ -30,6 +52,10 @@ class FakeApi:
         self.mutations = 0
         self.fail_after = fail_after
         self.lose_base_response = lose_base_response
+        self.request_timeout, self.poll_interval, self.max_poll_interval = 1800, 0.5, 5
+        self.pending_after = pending_after  # this mutation outlives the polling timeout
+        self.pending_applied = pending_applied  # whether its publication succeeds on the server afterwards
+        self.busy_reads = busy_reads  # table reads refused while a publication holds the base
 
     def new_id(self, prefix: str) -> str:
         self.counter += 1
@@ -53,8 +79,15 @@ class FakeApi:
 
     def request(self, method: str, path: str, params: dict | None = None, body: dict | None = None, missing_ok: bool = False) -> dict | None:
         params, body = params or {}, body or {}
+        if method == "GET" and path == "/meta/tables" and self.busy_reads:
+            self.busy_reads -= 1
+            raise importer.ApiError(409, "Tabula API: HTTP 409 (ERR_BUSY) on GET /meta/tables", "ERR_BUSY")
+        pending = False
         if method != "GET":
             self.write()
+            pending = self.pending_after == self.mutations
+            if pending and not self.pending_applied:
+                raise importer.OperationPending(PENDING_JOB, self.root, "fixture-key")
         if path == "/meta/workspaces":
             assert params["workspaceId"] == self.workspace
             result = {"id": self.workspace}
@@ -113,6 +146,8 @@ class FakeApi:
                 self.records[body["id"]] = result
         else:
             raise AssertionError((method, path))
+        if pending:
+            raise importer.OperationPending(PENDING_JOB, self.root, "fixture-key")
         return copy.deepcopy(result)
 
 
@@ -168,13 +203,70 @@ def run() -> None:
         if export:
             Path(export).write_text(json.dumps({"tables": list(lost.tables.values())}, ensure_ascii=False), encoding="utf-8")
     print("Import checks passed: resume, duplicate refusal, recovery, no rewrite after completion.")
+    verify_pending_publication(model, digest, scratch)
     verify_native_transport()
     verify_bootstrap(model_path)
 
 
+def verify_pending_publication(model: dict, digest: str, scratch: Path) -> None:
+    second_table = model["tables"][1]["title"]
+    with tempfile.TemporaryDirectory(prefix="tabula-pending-", dir=scratch) as directory, redirect_stdout(io.StringIO()):
+        # The production failure: base and first table exist, the next schema job outlives the polling timeout.
+        receipt = Path(directory) / "pending.json"
+        api = FakeApi(pending_after=3)
+        try:
+            importer.install(api, api.workspace, model, digest, receipt)
+        except importer.OperationPending as error:
+            assert "Delete nothing" in str(error) and "[native-intents]" in str(error) and "pollPath" not in str(error), str(error)
+        else:
+            raise AssertionError("Missing pending publication")
+        saved = json.loads(receipt.read_text(encoding="utf-8"))
+        noted = saved["pending_job"]
+        assert {k: noted[k] for k in ("intent_id", "base_id", "step", "title")} == {
+            "intent_id": PENDING_JOB["id"], "base_id": api.bases[0]["id"], "step": "table", "title": second_table}
+        assert re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", noted["noted_at"]) and not saved.get("complete")
+        assert not receipt.with_suffix(".json.lock").exists()
+
+        # Next run: the base refuses reads while the publication ends, then the table is found by title, not created twice.
+        # The note goes as soon as its object is seen, even when the run is interrupted afterwards.
+        api.busy_reads, api.fail_after = 2, api.mutations + 2
+        with Clock().running() as clock:
+            rejected(lambda: importer.install(api, api.workspace, model, digest, receipt), "interruption")
+        saved = json.loads(receipt.read_text(encoding="utf-8"))
+        assert clock.pauses == [0.5, 0.75] and api.busy_reads == 0 and "pending_job" not in saved and not saved.get("complete")
+        importer.install(api, api.workspace, model, digest, receipt)
+        assert json.loads(receipt.read_text(encoding="utf-8"))["complete"]
+        assert len(api.bases) == 1 and len(api.tables) == 6 and [t["title"] for t in api.tables.values()].count(second_table) == 1
+
+        # The publication failed on the server after the timeout: the object is absent and gets created again.
+        failed = FakeApi(pending_after=3, pending_applied=False)
+        failed_receipt = Path(directory) / "failed.json"
+        rejected(lambda: importer.install(failed, failed.workspace, model, digest, failed_receipt), "still running on the server")
+        assert len(failed.tables) == 1 and json.loads(failed_receipt.read_text(encoding="utf-8"))["pending_job"]["title"] == second_table
+        importer.install(failed, failed.workspace, model, digest, failed_receipt)
+        assert len(failed.tables) == 6 and "pending_job" not in json.loads(failed_receipt.read_text(encoding="utf-8"))
+
+        # A base that never becomes readable stops the run with the note kept, and nothing is written.
+        stuck = FakeApi(pending_after=3)
+        stuck_receipt = Path(directory) / "stuck.json"
+        rejected(lambda: importer.install(stuck, stuck.workspace, model, digest, stuck_receipt), "still running on the server")
+        stuck.busy_reads, written = 10**9, stuck.mutations
+        with Clock().running() as clock:
+            rejected(lambda: importer.install(stuck, stuck.workspace, model, digest, stuck_receipt), "still busy with publication " + PENDING_JOB["id"])
+        assert clock.now >= 1800 and max(clock.pauses) == 5 and stuck.mutations == written
+        assert json.loads(stuck_receipt.read_text(encoding="utf-8"))["pending_job"]["intent_id"] == PENDING_JOB["id"]
+
+        # Without a noted publication a busy read is an ordinary refusal: nothing is retried.
+        fresh = FakeApi(busy_reads=1)
+        with Clock().running() as clock:
+            rejected(lambda: importer.install(fresh, fresh.workspace, model, digest, Path(directory) / "fresh.json"), "ERR_BUSY")
+        assert clock.pauses == [] and fresh.busy_reads == 0 and len(fresh.tables) == 0
+    print("Pending publication checks passed: job noted in the receipt, busy reads retried, resume by title, failed job recreated.")
+
+
 class Response(io.BytesIO):
-    def __init__(self, status: int, result: dict):
-        super().__init__(json.dumps(result).encode())
+    def __init__(self, status: int, result: dict | bytes):
+        super().__init__(result if isinstance(result, bytes) else json.dumps(result).encode())
         self.status = self.code = status
 
 
@@ -186,6 +278,8 @@ class Opener:
     def open(self, request, timeout):
         self.requests.append(request)
         assert timeout > 0
+        if isinstance(self.responses[0], Exception):
+            raise self.responses.pop(0)
         status, result = self.responses.pop(0)
         if status >= 400:
             raise urllib.error.HTTPError(request.full_url, status, "Fixture", {}, Response(status, result))
@@ -246,13 +340,52 @@ def verify_native_transport() -> None:
         else:
             raise AssertionError("Missing pending-operation timeout")
     assert len(api.opener.requests) == 1
+
+    # The timeout comes from the caller, then the environment, then a default sized for a slow publication.
+    assert importer.Api(root, token).request_timeout == 1800 and importer.job_timeout(600) == 600
+    with patch.dict(os.environ, {"TABULA_SCHEMA_JOB_TIMEOUT_SECONDS": "120"}):
+        assert importer.Api(root, token).request_timeout == 120 and importer.job_timeout(600) == 600
+    for invalid in ["0", "soon", "99999"]:
+        with patch.dict(os.environ, {"TABULA_SCHEMA_JOB_TIMEOUT_SECONDS": invalid}):
+            rejected(lambda: importer.Api(root, token), "schema job timeout")
+    rejected(lambda: importer.job_timeout(True), "schema job timeout")
+    # Polling slows from half a second to five seconds, and every pause lets the caller keep its session alive.
+    api = importer.Api(root, token)
+    api.opener = Opener([(202, {"job": job})] * 9 + [(200, {"id": "result"})])
+    waits: list[int] = []
+    api.on_wait = lambda: waits.append(1)
+    with Clock().running() as clock:
+        assert api.request("POST", "/meta/tables", body={}) == {"id": "result"}
+    assert clock.pauses[:3] == [0.5, 0.75, 1.125] and clock.pauses[-2:] == [5, 5] and clock.pauses == sorted(clock.pauses) and len(waits) == 9
+    # A slow publication is followed up to the timeout, then reported truthfully.
+    api = importer.Api(root, token, request_timeout=60)
+    api.opener = Opener([(202, {"job": job})] * 100)
+    with Clock().running() as clock:
+        rejected(lambda: api.request("POST", "/meta/tables", body={}), "still running on the server after the polling timeout. Delete nothing")
+    assert 55 <= clock.now <= 60
+    # Polling needs the token that created the job: it stops before that token expires.
+    api = importer.Api(root, token)
+    api.expires_at = 1010
+    api.opener = Opener([(202, {"job": job})] * 100)
+    with Clock().running() as clock, patch.object(importer.time, "time", lambda: 1000 + clock.now):
+        rejected(lambda: api.request("POST", "/meta/tables", body={}), "still running on the server")
+    assert 5 <= clock.now <= 10
+    api = importer.Api(root, token)
+    api.opener = Opener([(409, {"error": "ERR_BUSY"})])
+    try:
+        api.request("GET", "/meta/tables", {"baseId": base_id})
+    except importer.ApiError as error:
+        assert error.status == 409 and error.code == "ERR_BUSY"
+    else:
+        raise AssertionError("Missing busy refusal")
     api = importer.Api(root, token)
     api.opener = Opener([(500, {"error": "server secret should not be printed"})])
     rejected(lambda: api.request("POST", "/meta/bases", body={}), "HTTP 500 (error)")
     assert len(api.opener.requests) == 1
     api.opener = Opener([(404, {"error": "ERR_NOT_FOUND"})])
     assert api.request("GET", "/data/records", missing_ok=True) is None
-    print("Native transport checks passed: one safe route retry, stable idempotency, bounded same-origin polling, malformed/changed jobs rejected.")
+    print("Native transport checks passed: one safe route retry, stable idempotency, bounded same-origin polling, malformed/changed jobs rejected, "
+          "configurable timeout, growing poll interval, polling stopped before token expiry.")
 
 
 def verify_bootstrap(model_path: Path) -> None:
@@ -275,8 +408,8 @@ def verify_bootstrap(model_path: Path) -> None:
         for settings in [config, native]:
             created = []
             actual_api = importer.Api
-            def make_api(root, token):
-                result = actual_api(root, token)
+            def make_api(root, token, **options):
+                result = actual_api(root, token, **options)
                 created.append(result)
                 return result
             with ExitStack() as stack:
@@ -299,6 +432,7 @@ def verify_bootstrap(model_path: Path) -> None:
                     assert create.args[:3] == ("https://app.tabula.test/native", "fixture-jwt", "createApiToken")
                     assert create.args[3]["expiresAtMicros"] == "4600000000"
                     assert created[0].root.endswith("/v1/database/tabula-v2/route/api/v3")
+                    assert created[0].request_timeout == 1800
                     assert created[0].token not in json.dumps(create.args[3])
                     assert remove.args[:3] == ("https://app.tabula.test/native", "refreshed-jwt", "deleteApiToken")
                     assert remove.args[3]["tokenId"] == create.args[3]["id"]

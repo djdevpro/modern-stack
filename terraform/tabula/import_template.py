@@ -19,6 +19,9 @@ from pathlib import Path
 ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 FIELD_TYPES = {"SingleLineText", "LongText", "Email", "URL", "PhoneNumber", "Number", "Decimal", "Checkbox", "Date", "DateTime", "SingleSelect", "MultiSelect", "JSON", "Formula"}
 OPERATORS = {"eq", "neq", "like", "nlike", "gt", "ge", "lt", "le", "blank", "notblank", "checked", "notchecked", "anyof", "nanyof", "allof", "nallof", "isWithin"}
+DEFAULT_JOB_TIMEOUT = 1800  # seconds one schema publication is followed before the import stops
+TOKEN_MARGIN = 300  # seconds a temporary token must outlive the job timeout: a queued publication fails when its token expires
+LOGS_HINT = "read the native manager logs (lines starting with [native-intents])"
 
 
 class ImportError_(Exception):
@@ -26,20 +29,31 @@ class ImportError_(Exception):
 
 
 class ApiError(ImportError_):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, code: str = ""):
         super().__init__(message)
-        self.status = status
+        self.status, self.code = status, code
 
 
 class OperationPending(ApiError):
     def __init__(self, job: dict, root: str, key: str):
-        super().__init__(408, f"Tabula publication is still pending ({job['id']}); resume its pollPath instead of repeating the mutation")
+        # Only the token that created a job may poll it, and that token lives in memory: a later run cannot resume the poll.
+        super().__init__(408, f"Tabula publication {job['id']} is still running on the server after the polling timeout. Delete nothing: "
+                              f"rerun the same targeted apply later, it resumes from the receipt. If it stays blocked, {LOGS_HINT}.")
         self.job, self.root, self.idempotency_key = job, root, key
 
 
 def require(condition: object, message: str) -> None:
     if not condition:
         raise ImportError_(message)
+
+
+def job_timeout(configured: object = None) -> int:
+    """Seconds one schema publication may be followed: configuration first, then the environment, then the default."""
+    value = configured if configured is not None else os.environ.get("TABULA_SCHEMA_JOB_TIMEOUT_SECONDS") or DEFAULT_JOB_TIMEOUT
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,5}", value):
+        value = int(value)
+    require(isinstance(value, int) and not isinstance(value, bool) and 30 <= value <= 3600, "The schema job timeout must be a whole number of seconds between 30 and 3600")
+    return value
 
 
 def ident(prefix: str, value: str) -> str:
@@ -167,7 +181,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Api:
-    def __init__(self, root: str, token: str, request_timeout: float = 300, poll_interval: float = 0.5):
+    def __init__(self, root: str, token: str, request_timeout: float | None = None, poll_interval: float = 0.5, max_poll_interval: float = 5):
         parsed = urllib.parse.urlsplit(root)
         local = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
         require(parsed.scheme == "https" or (parsed.scheme == "http" and local), "HTTPS is required except on loopback")
@@ -176,8 +190,15 @@ class Api:
         self.root = root.rstrip("/")
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect())
-        require(0 < request_timeout <= 3600 and 0 < poll_interval <= 30, "Invalid API timeout or poll interval")
-        self.request_timeout, self.poll_interval = request_timeout, poll_interval
+        request_timeout = job_timeout() if request_timeout is None else request_timeout
+        require(0 < request_timeout <= 3600 and 0 < poll_interval <= max_poll_interval <= 30, "Invalid API timeout or poll interval")
+        self.request_timeout, self.poll_interval, self.max_poll_interval = request_timeout, poll_interval, max_poll_interval
+        self.expires_at: float | None = None  # Unix time after which the token can no longer follow its own jobs
+        self.on_wait = None  # called before each polling pause, for instance to keep an operator session alive
+
+    def _remaining(self, deadline: float) -> float:
+        left = deadline - time.monotonic()
+        return left if self.expires_at is None else min(left, self.expires_at - time.time())
 
     def _exchange(self, method: str, url: str, headers: dict, data: bytes | None, timeout: float) -> tuple[int, dict]:
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
@@ -245,13 +266,17 @@ class Api:
                 # This precise response guarantees the mutation has not started; no other failure replays it.
                 status, result = self._exchange(method, active_root + target, headers, data, deadline - time.monotonic())
         pending = None
+        pause = self.poll_interval
         while status == 202:
             pending = self._pending_job(result, pending)
-            remaining = deadline - time.monotonic()
+            remaining = self._remaining(deadline)
             if remaining <= 0:
                 raise OperationPending(pending, active_root, key)
-            time.sleep(min(self.poll_interval, remaining))
-            remaining = deadline - time.monotonic()
+            if self.on_wait is not None:
+                self.on_wait()
+            time.sleep(min(pause, remaining))
+            pause = min(pause * 1.5, self.max_poll_interval)
+            remaining = self._remaining(deadline)
             if remaining <= 0:
                 raise OperationPending(pending, active_root, key)
             status, result = self._exchange("GET", active_root + pending["pollPath"],
@@ -262,8 +287,25 @@ class Api:
             code = result.get("error", "error")
             if not isinstance(code, str) or re.fullmatch(r"[A-Za-z0-9_]{1,80}", code) is None:
                 code = "error"
-            raise ApiError(status, f"Tabula API: HTTP {status} ({code}) on {method} {path}")
+            raise ApiError(status, f"Tabula API: HTTP {status} ({code}) on {method} {path}", code)
         return result
+
+
+def retry_busy(api: Api, call, waiting_for: str):
+    """Repeat one read while Tabula answers ERR_BUSY: a base being published refuses reads. A mutation is never repeated here."""
+    deadline = time.monotonic() + api.request_timeout
+    pause = api.poll_interval
+    while True:
+        try:
+            return call()
+        except ApiError as error:
+            if error.code != "ERR_BUSY":
+                raise
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, f"The base is still busy with {waiting_for} after {api.request_timeout} seconds. Delete nothing: "
+                                   f"rerun the same targeted apply later. If it stays blocked, {LOGS_HINT}.")
+        time.sleep(min(pause, remaining))
+        pause = min(pause * 1.5, api.max_poll_interval)
 
 
 def save(path: Path, receipt: dict) -> None:
@@ -368,6 +410,24 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
     receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.exists() else {"version": 1, "scope": scope, "workspace_id": workspace, "model": model["key"], "digest": digest}
     require(receipt.get("version") == 1 and receipt.get("scope") == scope and receipt.get("model") == model["key"], "Receipt belongs to another installation")
     require(receipt.get("digest") == digest, "The model changed after this installation started; use a new installation_id to create another base")
+    require(receipt.get("pending_job") is None or isinstance(receipt["pending_job"], dict), "Invalid pending job in receipt")
+
+    def mutate(step: str, title: str, method: str, path: str, params: dict, body: dict) -> dict:
+        try:
+            return api.request(method, path, params, body) or {}
+        except OperationPending as error:
+            # The publication goes on without this process: the next run needs to know what it is waiting for.
+            receipt["pending_job"] = {"intent_id": error.job["id"], "base_id": receipt.get("base_id"), "step": step, "title": title,
+                                      "noted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            save(receipt_path, receipt)
+            raise
+
+    def seen(step: str, title: str) -> None:
+        noted = receipt.get("pending_job")
+        if noted and noted.get("step") == step and noted.get("title") == title:
+            del receipt["pending_job"]
+            save(receipt_path, receipt)
+
     api.request("GET", "/meta/workspaces", {"workspaceId": workspace})
     base_id = receipt.get("base_id")
     if receipt.get("complete"):
@@ -388,7 +448,7 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         receipt["base_creation_started"] = True
         save(receipt_path, receipt)
         try:
-            base = api.request("POST", "/meta/bases", {"workspaceId": workspace}, {"title": model["title"]}) or {}
+            base = mutate("base", model["title"], "POST", "/meta/bases", {"workspaceId": workspace}, {"title": model["title"]})
         except ApiError as error:
             if 400 <= error.status < 500 and error.status not in {408, 429}:
                 receipt["base_creation_started"] = False
@@ -397,16 +457,22 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         base_id = receipt["base_id"] = base["id"]
         save(receipt_path, receipt)
         print(f"Created base: {base_id}")
+    seen("base", model["title"])
 
-    table_rows = (api.request("GET", "/meta/tables", {"baseId": base_id}) or {}).get("list", [])
+    def read_tables() -> list[dict]:
+        return (api.request("GET", "/meta/tables", {"baseId": base_id}) or {}).get("list", [])
+
+    noted = receipt.get("pending_job")
+    table_rows = retry_busy(api, read_tables, f"publication {noted.get('intent_id')}") if noted else read_tables()
     table_ids: dict[str, str] = {}
     for spec in model["tables"]:
         row = by_title(table_rows, spec["title"])
         if row is None:
             body = {"title": spec["title"], "description": spec.get("description", ""), "fields": [api_field(f) for f in spec["fields"]]}
-            row = api.request("POST", "/meta/tables", {"baseId": base_id}, body) or {}
+            row = mutate("table", spec["title"], "POST", "/meta/tables", {"baseId": base_id}, body)
             table_rows.append(row)
             print(f"Created table: {spec['title']}")
+        seen("table", spec["title"])
         table_ids[spec["key"]] = row["id"]
         current = (api.request("GET", "/meta/fields", {"tableId": row["id"]}) or {}).get("list", [])
         for spec_field in spec["fields"]:
@@ -424,8 +490,9 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         spec = {**relation, "type": "Links"}
         row = find_field(current_fields(source), spec)
         if row is None:
-            row = api.request("POST", "/meta/fields", {"tableId": table_ids[source]}, {"title": relation["title"], "type": "Links", "options": {"related_table_id": table_ids[target], "allow_multiple": relation.get("allow_multiple", True)}}) or {}
+            row = mutate("relation", f"{source} / {relation['title']}", "POST", "/meta/fields", {"tableId": table_ids[source]}, {"title": relation["title"], "type": "Links", "options": {"related_table_id": table_ids[target], "allow_multiple": relation.get("allow_multiple", True)}})
             print(f"Created relation: {source} / {relation['title']}")
+        seen("relation", f"{source} / {relation['title']}")
         options = row.get("options", {})
         require(options.get("related_table_id") == table_ids[target] and options.get("allow_multiple") == relation.get("allow_multiple", True), f"Relation differs: {relation['title']}")
         inverse_id = options.get("inverse_field_id")
@@ -433,7 +500,8 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         require(inverse is not None, f"Missing inverse relation: {relation['title']}")
         if inverse["title"] != relation["inverse_title"]:
             require(by_title(current_fields(target), relation["inverse_title"]) is None, f"Inverse relation title already used: {relation['inverse_title']}")
-            inverse = api.request("PATCH", "/meta/fields", {"fieldId": inverse_id}, {"title": relation["inverse_title"]}) or {}
+            inverse = mutate("inverse relation", f"{target} / {relation['inverse_title']}", "PATCH", "/meta/fields", {"fieldId": inverse_id}, {"title": relation["inverse_title"]})
+        seen("inverse relation", f"{target} / {relation['inverse_title']}")
         mapped[source][relation["key"]] = row
         mapped[target][relation["inverse_key"]] = inverse
 
@@ -448,8 +516,9 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
             options = spec["options"]
         row = find_field(current_fields(table), spec)
         if row is None:
-            row = api.request("POST", "/meta/fields", {"tableId": table_ids[table]}, {"title": spec["title"], "type": spec["type"], "options": options}) or {}
+            row = mutate("calculated field", f"{table} / {spec['title']}", "POST", "/meta/fields", {"tableId": table_ids[table]}, {"title": spec["title"], "type": spec["type"], "options": options})
             print(f"Created calculated field: {table} / {spec['title']}")
+        seen("calculated field", f"{table} / {spec['title']}")
         require(all(row.get("options", {}).get(k) == v for k, v in options.items()), f"Calculated field differs: {spec['title']}")
         mapped[table][spec["key"]] = row
 
@@ -461,11 +530,12 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         if row is None and spec.get("default"):
             row = by_title(views, "Grid view")
             require(row is not None and row.get("type") == "grid", f"Default view missing for {table}")
-            row = api.request("PATCH", "/meta/views", {"viewId": row["id"]}, {"title": spec["title"], "config": config}) or {}
+            row = mutate("view", f"{table} / {spec['title']}", "PATCH", "/meta/views", {"viewId": row["id"]}, {"title": spec["title"], "config": config})
             print(f"Configured view: {spec['title']}")
         elif row is None:
-            row = api.request("POST", "/meta/views", {"tableId": table_ids[table]}, {"title": spec["title"], "type": spec["type"], "config": config}) or {}
+            row = mutate("view", f"{table} / {spec['title']}", "POST", "/meta/views", {"tableId": table_ids[table]}, {"title": spec["title"], "type": spec["type"], "config": config})
             print(f"Created view: {spec['title']}")
+        seen("view", f"{table} / {spec['title']}")
         require(row.get("type") == spec["type"] and config_matches(row.get("config", {}), config), f"Existing view differs: {spec['title']}")
 
     for seed in model.get("seeds", []):
@@ -474,7 +544,8 @@ def _install(api: Api, workspace: str, model: dict, digest: str, receipt_path: P
         found = api.request("GET", "/data/records", {"tableId": table_ids[table], "recordId": record_id}, missing_ok=True)
         if found is None:
             values = {mapped[table][key]["id"]: value for key, value in seed["values"].items()}
-            api.request("POST", "/data/records", {"tableId": table_ids[table]}, {"id": record_id, "fields": values})
+            mutate("seed", f"{table} / {seed['key']}", "POST", "/data/records", {"tableId": table_ids[table]}, {"id": record_id, "fields": values})
+    receipt.pop("pending_job", None)
     receipt["complete"] = True
     save(receipt_path, receipt)
     print(f"Import complete: {base_id}")

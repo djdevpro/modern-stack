@@ -21,7 +21,7 @@ Le fichier [templates/prospection.json](templates/prospection.json) décrit une 
    python setup.py tf tabula apply '-target=terraform_data.database_template'
    ```
 
-   Le ciblage évite de relancer la configuration d'identité et de mise à jour de la pile Tabula. Sur le serveur, l'import utilise les accès initiaux déjà présents dans `/opt/tabula/bootstrap.json`, se connecte au compte configuré avec le flux OIDC et PKCE existant, puis crée un jeton API temporaire valable 20 minutes, révoqué en fin d'import. Aucun mot de passe ni jeton n'est envoyé à Terraform ou enregistré dans son état. Le mot de passe n'est jamais réinitialisé : si l'accès initial a changé ou si une action interactive est requise, l'import s'arrête.
+   Le ciblage évite de relancer la configuration d'identité et de mise à jour de la pile Tabula. Sur le serveur, l'import utilise les accès initiaux déjà présents dans `/opt/tabula/bootstrap.json`, se connecte au compte configuré avec le flux OIDC et PKCE existant, puis crée un jeton API temporaire, révoqué en fin d'import. Ce jeton expire seul au bout de 60 minutes avec le gestionnaire natif, et de 20 minutes sans lui. Aucun mot de passe ni jeton n'est envoyé à Terraform ou enregistré dans son état. Le mot de passe n'est jamais réinitialisé. Si l'accès initial a changé ou si une action interactive est requise, l'import s'arrête.
 
 3. Ouvrir la nouvelle base et vérifier les vues. Compléter « Paramètres » avec les vrais critères du client idéal et les délais souhaités.
 
@@ -48,5 +48,19 @@ Pour vérifier un autre modèle avant son installation : définir temporairement
 L'import crée la base une fois et conserve un reçu sur le serveur dans `/opt/tabula/models/`. Après réussite, les applications suivantes vérifient son accès et ne réécrivent pas le schéma ni les données, même si l'utilisateur les a modifiés. Un changement de JSON demande un nouvel `installation_id` et un titre de base différent ; aucune migration en place n'est effectuée. Retirer la ressource Terraform ou exécuter `terraform destroy` ne supprime pas la base Tabula.
 
 Si l'import s'interrompt, le relancer avec le même JSON et le même `installation_id`. Il reprend les objets déjà créés dans cette base et refuse les conflits. Si la réponse de création de base a été perdue, l'import s'arrête pour éviter un doublon : vérifier l'identifiant de la base réellement créée, le fournir explicitement dans `database_template.recovery_base_id`, relancer l'apply ciblé puis retirer cette option. Si un fichier `.lock` subsiste après l'arrêt du processus, ne le retirer qu'après avoir vérifié qu'aucun import n'est en cours. Après un refus de connexion, un fichier `.login-failed` bloque les nouvelles tentatives pour éviter de verrouiller le compte : vérifier les accès avant de le retirer.
+
+## Publication en attente ou erreur 409
+
+Tabula publie chaque changement de structure par une tâche de fond du gestionnaire natif. L'import suit chaque tâche pendant 30 minutes au plus. Passé ce délai, il s'arrête avec le message `Tabula publication intent-… is still running on the server`. La publication continue alors sur le serveur. Ne rien supprimer, ni la base, ni le reçu, ni la ressource Terraform.
+
+Le reçu garde la tâche en attente sous la clé `pending_job` et l'identifiant du jeton temporaire sous `unrevoked_tokens`. L'import laisse ce jeton en place, car le révoquer ferait échouer la tâche encore en file. Le jeton expire seul.
+
+Relancer plus tard le même apply ciblé. L'import attend d'abord que la base soit prête, pendant 15 minutes au plus. Il révoque ensuite le jeton laissé en place, puis reprend les objets déjà créés d'après leur titre.
+
+Le message `HTTP 409, busy` vient du même verrou. Tabula refuse de créer ou de révoquer un jeton tant qu'une base du compte est en cours de publication. L'import réessaie seul pendant 15 minutes au plus. Si le message revient, attendre la fin de la publication puis relancer. Un autre code entre parenthèses, par exemple `conflict` ou `native_job_expired`, est un refus que l'import ne réessaie pas.
+
+Si le message annonce une base dans l'état `error`, ou si l'attente se répète d'un lancement à l'autre, lire les journaux du service `manager` de la pile Tabula et chercher les lignes `[native-intents]`. Elles donnent le code de l'échec.
+
+Deux délais se règlent dans `database_template`, en secondes, entre 30 et 3600. `schema_job_timeout_seconds` fixe le suivi d'une tâche et vaut 1800 par défaut. `base_ready_timeout_seconds` fixe l'attente d'une base prête et vaut 900 par défaut. Le jeton temporaire dure toujours au moins 5 minutes de plus que le suivi d'une tâche.
 
 Conserver le reçu avec l'état d'installation local. S'il est perdu, une base de même nom n'est pas adoptée automatiquement. Les modifications des formulaires, règles de score, séquences ou automatisations futures restent sous le contrôle de l'utilisateur.

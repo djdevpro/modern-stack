@@ -2,24 +2,24 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.terraform.io/aminueza/minio" {
-  version     = "3.45.1"
-  constraints = "3.45.1"
+  version     = "3.46.3"
+  constraints = "3.46.3"
   hashes = [
-    "h1:C2Ixb+RsAppsn/kJhDHo7kBO2umDPTTMJYi4cLAfJQI=",
-    "h1:z8DtybZW6MBiGFFVZL/k+5h94eL826K2ywdwsaw195Q=",
-    "zh:1a08a24e732c20ad3e6c62e4cc2f94ad9c0bb6bf066d988db12edc21118e05ae",
-    "zh:1cd965b960fdce9d27e3a1cd02c53124aacd49fdb62852189a0b2687eef2edc7",
-    "zh:29de0a5c6231c205ceba9b73d190f53ab542fe44c935a988af679f0546e62e4d",
-    "zh:2fb4256d5471f67339a3725813607c3ebd3ce44bbbd69ba356f44392efc8a0f0",
-    "zh:32f6368aef26d50343af8606d2ecc8e6d8f44ab3896f6982e3d2b2421128361d",
-    "zh:34e5c0e72a89b6eb6ea4d6fa20d4b34b20336fb8742bc0bf6d28700d22669c2e",
-    "zh:5c39d7003b0fb5269fbee1f4f6064e177270c298b9e1800754cb829351e75cac",
-    "zh:8efe834a1c993fa4bc451f186eae9ed73d7e371709c1105fa13b8575fc04e1b2",
-    "zh:9b330a9df4f5e7d9c5797d52e5ad80ad0b1255d565d782c03e8fd578b3350d30",
-    "zh:a0fba4870d6f03b8b944e703d817e280c071380adb191e101721326e1b6aa279",
-    "zh:a3161194c62d03330c2c12ff357372a79edafeeed4d7b4aeaedd21c7d16f6701",
-    "zh:c6148026f0f1505806f4da872a702787e4de78e7a5e360f265aab458da5e23b3",
-    "zh:e7e6ded2dc6f091473ef9847779d2da3b547f543df363acd5ae2d7daac3c525f",
+    "h1:JufolSPtuQatY/9D0+V3iplgvlVPqd2hoU5P4QIyziM=",
+    "h1:luMw2XWKS2a8yi/yIqn2qAw2rLAdAkNnbIHapkzpT9c=",
+    "zh:01733c14f9d0724c404a258b668732f99f86ce16e65747902f7e51fb276fffe0",
+    "zh:127371a47bd643ca3a84523f1426c00e81195e3f10e30c7bdb8ca7987cc3c7ef",
+    "zh:1b27dad321fbdd550d328a63bc85093c72281a6af91ad6d249bbf15774dd91dd",
+    "zh:6c28ac386489ed904d1cf88382d21dba4ca749b1da6fcb1a3ecb11c0d6234f9f",
+    "zh:7cced05a3b2f26a03ad76cc13f655aab842f26db38a47a72020ff2ac7fcede47",
+    "zh:87cd6395207e20f532891902e44f2fdb92028669176cef7a8a30f1dc33d2e50f",
+    "zh:94c299b67007310e0e57892465ae54c9591749376916782e242dad3ecf9c7332",
+    "zh:95537fd6ccf778917c25e25fcc2c75a0599210db993e23dcf1b4c5c8eae7d234",
+    "zh:be52ecb44f323cce598e85084987948e2d3c6f07bf31250c372f28503831d4b8",
+    "zh:c3e0f2bdde045b27ea3ad14d65d5f595e2e48fa4b840c4fd1d107d3330fe49a0",
+    "zh:d63c68cc4cf30d3173a3207f95460d8882b79c3679ee51e45b008dc734df1d89",
+    "zh:ef6a3f439cc877133597251953cffd6ed3574039e1a4efd241f6ecb232baac5e",
+    "zh:f426a35a940ae70aa2c2931b691700c8285c8af49a2d8060df8031ed2a567ee9",
   ]
 }
 

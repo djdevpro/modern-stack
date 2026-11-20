@@ -7,6 +7,9 @@ variable "database_template" {
     installation_id  = optional(string, "prospection-v1")
     template_path    = optional(string)
     recovery_base_id = optional(string)
+    # Seconds one schema publication is followed, and seconds a base may take to be ready again before the import starts.
+    schema_job_timeout_seconds = optional(number)
+    base_ready_timeout_seconds = optional(number)
   })
   default = null
 
@@ -17,6 +20,14 @@ variable "database_template" {
       can(regex("^[a-zA-Z0-9_-]{1,80}$", var.database_template.installation_id))
     )
     error_message = "Use valid optional Tabula workspace and recovery base IDs, and a simple installation_id."
+  }
+
+  validation {
+    condition = var.database_template == null ? true : alltrue([
+      for seconds in [var.database_template.schema_job_timeout_seconds, var.database_template.base_ready_timeout_seconds] :
+      seconds == null ? true : (seconds >= 30 && seconds <= 3600 && floor(seconds) == seconds)
+    ])
+    error_message = "Timeouts are whole numbers of seconds between 30 and 3600."
   }
 }
 
@@ -75,6 +86,9 @@ resource "terraform_data" "database_template" {
       admin_email        = var.configuration.admin_email
       workspace_id       = var.database_template.workspace_id
       recovery_base_id   = var.database_template.recovery_base_id
+      # Deliberately absent from triggers_replace: a new timeout applies to the next run without replaying a finished import.
+      schema_job_timeout_seconds = var.database_template.schema_job_timeout_seconds
+      base_ready_timeout_seconds = var.database_template.base_ready_timeout_seconds
     })
     destination = "/home/${var.admin_user}/.tabula-terraform/models/${var.database_template.installation_id}/configuration.json"
   }

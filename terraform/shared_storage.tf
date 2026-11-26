@@ -48,6 +48,17 @@ variable "additional_app_bucket_origins" {
   }
 }
 
+variable "fera_replay_retention_days" {
+  description = "Durée de vie des replays de FERA, sous fera/replays/ seulement ; null n'ajoute aucune règle."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.fera_replay_retention_days == null || (var.fera_replay_retention_days >= 1 && var.fera_replay_retention_days <= 365)
+    error_message = "Entre 1 et 365 jours."
+  }
+}
+
 locals {
   shared_app_cors_rules = concat(var.existing_app_bucket_cors_rules, length(var.additional_app_bucket_origins) == 0 ? [] : [{
     id              = "tabula-native"
@@ -100,6 +111,21 @@ resource "minio_s3_bucket_lifecycle" "shared_application" {
     }
     expiration {
       days = 1
+    }
+  }
+
+  # Replays de FERA : même durée que leur index dans ClickHouse. Les source maps (fera/sourcemaps/) restent.
+  dynamic "rule" {
+    for_each = var.fera_replay_retention_days == null ? [] : [var.fera_replay_retention_days]
+    content {
+      id     = "fera-replays"
+      status = "Enabled"
+      filter {
+        prefix = "fera/replays/"
+      }
+      expiration {
+        days = rule.value
+      }
     }
   }
 

@@ -11,10 +11,10 @@ variables dont chaque pile a besoin, et Terraform dépose lui-même le .env du D
     python setup.py import FICHIER [--map ANCIEN=NOUVEAU ...] [--strip | --delete]
                                                 reprend les secrets d'un ancien .env
     python setup.py check-drive                 vérifie que les clés du Drive n'ouvrent pas l'état Terraform
-    python setup.py plan  infra|drive|tabula
-    python setup.py apply infra|drive|tabula [--yes]
-    python setup.py output infra|drive|tabula [NOM]
-    python setup.py tf infra|drive|tabula ARGS...      terraform brut avec les secrets chargés
+    python setup.py plan  infra|drive|tabula|slide|fera
+    python setup.py apply infra|drive|tabula|slide|fera [--yes]
+    python setup.py output infra|drive|tabula|slide|fera [NOM]
+    python setup.py tf infra|drive|tabula|slide|fera ARGS...   terraform brut avec les secrets chargés
 
 Python 3.10 ou plus, bibliothèque standard seulement.
 """
@@ -37,6 +37,8 @@ STACKS = {
     "infra": ROOT / "terraform",
     "drive": ROOT / "terraform" / "drive",
     "tabula": ROOT / "terraform" / "tabula",
+    "slide": ROOT / "terraform" / "slide",
+    "fera": ROOT / "terraform" / "fera",
 }
 
 # Nom dans le magasin -> (variable passée à Terraform, piles qui l'utilisent, obligatoire, description)
@@ -47,13 +49,13 @@ SECRETS: dict[str, tuple[str, set[str], bool, str]] = {
                           "clé NetBird (utile seulement à la création du serveur)"),
     "CLAUDE_CODE_OAUTH_TOKEN": ("TF_VAR_claude_code_oauth_token", {"infra"}, False,
                                 "jeton Claude Code de l'admin (création du serveur seulement)"),
-    "TFSTATE_ACCESS_KEY_ID": ("AWS_ACCESS_KEY_ID", {"infra", "drive", "tabula"}, True,
+    "TFSTATE_ACCESS_KEY_ID": ("AWS_ACCESS_KEY_ID", {"infra", "drive", "tabula", "slide", "fera"}, True,
                               "clé S3 du bucket de l'état Terraform"),
-    "TFSTATE_SECRET_ACCESS_KEY": ("AWS_SECRET_ACCESS_KEY", {"infra", "drive", "tabula"}, True,
+    "TFSTATE_SECRET_ACCESS_KEY": ("AWS_SECRET_ACCESS_KEY", {"infra", "drive", "tabula", "slide", "fera"}, True,
                                   "clé secrète S3 du bucket de l'état Terraform"),
-    "DRIVE_S3_ACCESS_KEY_ID": ("TF_VAR_drive_s3_access_key", {"infra", "drive", "tabula"}, True,
+    "DRIVE_S3_ACCESS_KEY_ID": ("TF_VAR_drive_s3_access_key", {"infra", "drive", "tabula", "fera"}, True,
                                "clé S3 du projet Hetzner du Drive"),
-    "DRIVE_S3_SECRET_ACCESS_KEY": ("TF_VAR_drive_s3_secret_key", {"infra", "drive", "tabula"}, True,
+    "DRIVE_S3_SECRET_ACCESS_KEY": ("TF_VAR_drive_s3_secret_key", {"infra", "drive", "tabula", "fera"}, True,
                                    "clé secrète S3 du projet Hetzner du Drive"),
     "CLOUDFLARE_API_TOKEN": ("TF_VAR_cloudflare_api_token", {"drive"}, True,
                              "jeton API Cloudflare (DNS de la zone du Drive)"),
@@ -194,12 +196,12 @@ def check_drive(store: dict[str, str]) -> None:
 
 def terraform(stack: str, args: list[str]) -> int:
     if stack not in STACKS:
-        fail(f"pile inconnue : {stack} (infra, drive ou tabula)")
+        fail(f"pile inconnue : {stack} ({', '.join(STACKS)})")
     store = load_store()
     missing = [n for n, (_, stacks, required, _) in SECRETS.items() if stack in stacks and required and not store.get(n)]
     if missing:
         fail(f"secrets manquants pour {stack} : {', '.join(missing)} (python setup.py secrets set NOM)")
-    if stack in {"drive", "tabula"} and args[:1] in (["plan"], ["apply"]):
+    if stack in {"drive", "tabula", "fera"} and args[:1] in (["plan"], ["apply"]):
         check_drive(store)
     env = dict(os.environ)
     for name, (variable, stacks, _, _) in SECRETS.items():

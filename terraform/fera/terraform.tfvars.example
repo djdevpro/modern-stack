@@ -1,0 +1,26 @@
+# Copier en terraform.tfvars (ignoré par git) et remplacer par les valeurs du serveur.
+ssh_host             = "serveur.example.net"
+ssh_host_key         = "ssh-ed25519 AAAA..."
+admin_user           = "admin"
+ssh_private_key_path = "~/.ssh/id_ed25519"
+
+# Nom public de FERA, sous le joker des applis. Interface, SDK et capture partagent ce nom.
+host = "fera.app.example.com"
+
+# Bucket applicatif déjà existant, partagé avec les autres applis. FERA écrit seulement sous s3_prefix.
+existing_bucket_name = "bucket-existant"
+s3_location          = "nbg1"
+# s3_prefix          = "fera/"
+
+# Projet du site suivi, créé avec une clé publique connue d'avance (à écrire dans le site).
+# site_project = {
+#   name       = "example.com"
+#   public_key = "pk_0000000000000000"
+#   origins    = ["https://example.com"]
+# }
+
+# Identifiant de l'interface (par défaut admin@<host>). Le mot de passe est créé sur le serveur.
+# admin_email = "admin@example.com"
+
+# Image par son empreinte, dans image.auto.tfvars (ignoré par git) :
+# image = "ghcr.io/example/fera@sha256:0000000000000000000000000000000000000000000000000000000000000000"
